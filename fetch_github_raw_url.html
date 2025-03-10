@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fetch GitHub Raw URLs</title>
+</head>
+<body>
+    <h1>GitHub Raw URLs for Files</h1>
+    <div id="file-urls"></div>
+
+    <script>
+        async function fetchGitHubFiles() {
+            const owner = 'Laurentsandler';
+            const repo = 'unit7';
+            const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/`;
+
+            try {
+                const response = await fetch(apiUrl);
+                const files = await response.json();
+
+                const fileUrls = files.map(file => {
+                    return `https://raw.githubusercontent.com/${owner}/${repo}/main/${file.path}`;
+                });
+
+                displayFileUrls(fileUrls);
+            } catch (error) {
+                console.error('Error fetching files:', error);
+            }
+        }
+
+        function displayFileUrls(fileUrls) {
+            const fileUrlsDiv = document.getElementById('file-urls');
+            fileUrls.forEach(url => {
+                const urlElement = document.createElement('p');
+                urlElement.textContent = url;
+                fileUrlsDiv.appendChild(urlElement);
+            });
+        }
+
+        fetchGitHubFiles();
+    </script>
+</body>
+</html>
