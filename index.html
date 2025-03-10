@@ -16,15 +16,17 @@
         async function fetchGitHubFiles() {
             const owner = 'Laurentsandler';
             const repo = 'unit7';
-            const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/`;
+            const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/Lessons`;
 
             try {
                 const response = await fetch(apiUrl);
                 const files = await response.json();
 
-                const fileUrls = files.map(file => {
-                    return `https://raw.githubusercontent.com/${owner}/${repo}/main/${file.path}`;
-                });
+                const fileUrls = files
+                    .filter(file => file.name.endsWith('.pdf'))
+                    .map(file => {
+                        return `https://raw.githubusercontent.com/${owner}/${repo}/main/${file.path}`;
+                    });
 
                 displayFileUrls(fileUrls);
             } catch (error) {
@@ -47,11 +49,21 @@
             });
         }
 
-        function displayPdf(url) {
+        async function displayPdf(url) {
             const pdfViewer = document.getElementById('pdf-viewer');
             const pdfFrame = document.getElementById('pdf-frame');
-            pdfFrame.src = url;
-            pdfViewer.style.display = 'block';
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error('File not accessible');
+                }
+                pdfFrame.src = url;
+                pdfViewer.style.display = 'block';
+            } catch (error) {
+                console.error('Error displaying PDF:', error);
+                alert('Error displaying PDF: ' + error.message);
+            }
         }
 
         fetchGitHubFiles();
