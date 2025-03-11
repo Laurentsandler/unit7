@@ -13,27 +13,39 @@
     </div>
 
     <script>
-        async function fetchGitHubFiles() {
-            const owner = 'Laurentsandler';
-            const repo = 'unit7';
-            const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/Lessons`;
+       async function fetchGitHubFiles() {
+    const owner = 'Laurentsandler';
+    const repo = 'unit7';
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/Lessons`;
 
-            try {
-                const response = await fetch(apiUrl);
-                const files = await response.json();
-
-                const fileUrls = files
-                    .filter(file => file.name.endsWith('.pdf'))
-                    .map(file => {
-                        return `https://raw.githubusercontent.com/${owner}/${repo}/main/${file.path}`;
-                    });
-
-                displayFileUrls(fileUrls);
-            } catch (error) {
-                console.error('Error fetching files:', error);
-            }
+    try {
+        const response = await fetch(apiUrl);
+        
+        // Check if the response is ok before proceeding
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        
+        const files = await response.json();
+        
+        // Check if files is an array before using filter
+        if (!Array.isArray(files)) {
+            throw new Error('The API did not return an array of files');
         }
 
+        const fileUrls = files
+            .filter(file => file.name.endsWith('.pdf'))
+            .map(file => {
+                return `https://raw.githubusercontent.com/${owner}/${repo}/main/${file.path}`;
+            });
+
+        displayFileUrls(fileUrls);
+    } catch (error) {
+        console.error('Error fetching files:', error);
+        document.getElementById('file-urls').innerHTML = 
+            `<p>Error: ${error.message}. Please make sure the 'Lessons' folder exists and contains PDF files.</p>`;
+    }
+}
         function displayFileUrls(fileUrls) {
             const fileUrlsDiv = document.getElementById('file-urls');
             fileUrls.forEach(url => {
