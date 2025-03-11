@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub PDF Viewer</title>
+    <title>GitHub PDF Viewer with Annotations</title>
     <!-- Include PDF.js from CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <style>
@@ -12,31 +12,60 @@
             margin: 20px;
             max-width: 1200px;
             margin: 0 auto;
+            overflow: hidden;
         }
         h1 {
             color: #24292e;
             margin-bottom: 20px;
         }
+        #container {
+            display: flex;
+            height: calc(100vh - 100px);
+        }
         #file-list {
-            width: 25%;
-            float: left;
+            width: 20%;
             background: #f6f8fa;
             padding: 15px;
             border-radius: 5px;
             margin-right: 2%;
-            height: calc(100vh - 120px);
             overflow-y: auto;
         }
-        #pdf-viewer {
-            width: 70%;
-            float: left;
-            height: calc(100vh - 120px);
+        #main-content {
+            width: 78%;
+            display: flex;
+            flex-direction: column;
+        }
+        #toolbar {
+            background: #f6f8fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #pdf-container {
+            position: relative;
+            height: 100%;
             border: 1px solid #ddd;
             border-radius: 5px;
+            overflow: auto;
+        }
+        #pdf-viewer {
+            position: relative;
         }
         #pdf-canvas {
-            width: 100%;
-            height: 100%;
+            position: absolute;
+            left: 0;
+            top: 0;
+            z-index: 1;
+        }
+        #annotation-canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+            z-index: 2;
+            cursor: crosshair;
         }
         .file-link {
             display: block;
@@ -52,17 +81,24 @@
         .file-link:hover {
             background: #f1f8ff;
         }
+        .file-link.active {
+            background: #0366d6;
+            color: white;
+        }
         .loading-message {
             text-align: center;
             padding: 20px;
             color: #586069;
         }
         #pdf-buttons {
-            text-align: center;
-            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+        .button-group {
+            margin-right: 15px;
+            display: inline-block;
         }
         button {
-            margin: 0 5px;
+            margin: 0 2px;
             padding: 5px 10px;
             background: #0366d6;
             color: white;
@@ -77,21 +113,86 @@
             background: #ccc;
             cursor: not-allowed;
         }
+        button.active {
+            background: #05a167;
+        }
+        input[type="color"] {
+            vertical-align: middle;
+            width: 25px;
+            height: 25px;
+            padding: 0;
+            border: none;
+            cursor: pointer;
+        }
+        select {
+            height: 25px;
+            margin: 0 5px;
+        }
+        #text-input {
+            display: none;
+            position: absolute;
+            border: 1px dashed #0366d6;
+            background: transparent;
+            font-family: Arial;
+            z-index: 3;
+            padding: 5px;
+            resize: none;
+            overflow: hidden;
+        }
+        #status-message {
+            font-style: italic;
+            color: #586069;
+        }
     </style>
 </head>
 <body>
-    <h1>GitHub Files Viewer</h1>
+    <h1>GitHub Files Viewer with Annotations</h1>
     
-    <div id="file-list">
-        <div class="loading-message">Loading files...</div>
-    </div>
-    
-    <div id="pdf-viewer">
-        <canvas id="pdf-canvas"></canvas>
-        <div id="pdf-buttons">
-            <button id="prev" disabled>Previous</button>
-            <span id="page-num"></span> / <span id="page-count"></span>
-            <button id="next" disabled>Next</button>
+    <div id="container">
+        <div id="file-list">
+            <div class="loading-message">Loading files...</div>
+        </div>
+        
+        <div id="main-content">
+            <div id="toolbar">
+                <div id="pdf-buttons">
+                    <div class="button-group">
+                        <button id="prev" disabled>← Previous</button>
+                        <span id="page-info">Page <span id="page-num">0</span> / <span id="page-count">0</span></span>
+                        <button id="next" disabled>Next →</button>
+                    </div>
+                    
+                    <div class="button-group">
+                        <button id="zoom-out">-</button>
+                        <span id="zoom-level">100%</span>
+                        <button id="zoom-in">+</button>
+                    </div>
+                </div>
+                
+                <div id="annotation-tools">
+                    <button id="draw-tool" title="Draw">Draw</button>
+                    <button id="text-tool" title="Add Text">Text</button>
+                    <button id="eraser-tool" title="Eraser">Eraser</button>
+                    <input type="color" id="color-picker" value="#FF0000" title="Color">
+                    <select id="line-width" title="Line Width">
+                        <option value="1">Thin</option>
+                        <option value="3" selected>Medium</option>
+                        <option value="5">Thick</option>
+                        <option value="10">Very Thick</option>
+                    </select>
+                    <button id="clear-annotations" title="Clear All Annotations">Clear</button>
+                    <button id="save-annotations" title="Save Annotations to Local Storage">Save</button>
+                </div>
+            </div>
+            
+            <div id="pdf-container">
+                <div id="pdf-viewer">
+                    <canvas id="pdf-canvas"></canvas>
+                    <canvas id="annotation-canvas"></canvas>
+                    <textarea id="text-input"></textarea>
+                </div>
+                <div id="status-message"></div>
+            </div>
         </div>
     </div>
 
@@ -105,10 +206,27 @@
         let pageNum = 1;
         let pageRendering = false;
         let pageNumPending = null;
-        let scale = 1.5;
-        let canvas = document.getElementById('pdf-canvas');
-        let ctx = canvas.getContext('2d');
-
+        let scale = 1.0;
+        let currentPdfUrl = '';
+        let currentPdfName = '';
+        let currentFileLink = null;
+        let pdfCanvas = document.getElementById('pdf-canvas');
+        let pdfCtx = pdfCanvas.getContext('2d');
+        let annotationCanvas = document.getElementById('annotation-canvas');
+        let annotCtx = annotationCanvas.getContext('2d');
+        
+        // Variables for drawing
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
+        let currentTool = 'draw'; // 'draw', 'text', 'eraser'
+        let lineWidth = 3;
+        let strokeColor = '#FF0000';
+        let textInput = document.getElementById('text-input');
+        let textPosition = { x: 0, y: 0 };
+        let textSize = 16;
+        let annotations = {}; // Object to store annotations by file and page
+        
         // Function to fetch GitHub files
         async function fetchGitHubFiles() {
             const owner = 'Laurentsandler';
@@ -138,15 +256,35 @@
                     const fileLink = document.createElement('a');
                     fileLink.className = 'file-link';
                     fileLink.textContent = file.name;
-                    fileLink.onclick = () => loadPDF(fileUrl);
+                    fileLink.onclick = function() {
+                        // Remove active class from previous link
+                        if (currentFileLink) {
+                            currentFileLink.classList.remove('active');
+                        }
+                        
+                        // Add active class to current link
+                        this.classList.add('active');
+                        currentFileLink = this;
+                        
+                        loadPDF(fileUrl, file.name);
+                    };
                     fileListDiv.appendChild(fileLink);
                 });
 
                 // Load the first file by default if there are any files
                 if (files.length > 0) {
                     const firstFileUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${files[0].path}`;
-                    loadPDF(firstFileUrl);
+                    const firstFileElement = fileListDiv.querySelector('.file-link');
+                    if (firstFileElement) {
+                        firstFileElement.classList.add('active');
+                        currentFileLink = firstFileElement;
+                    }
+                    loadPDF(firstFileUrl, files[0].name);
                 }
+                
+                // Load annotations from local storage
+                loadAnnotations();
+                
             } catch (error) {
                 fileListDiv.innerHTML = `<div class="loading-message">Error: ${error.message}<br>Please make sure the 'Lessons' folder exists and contains files.</div>`;
                 console.error('Error fetching files:', error);
@@ -156,17 +294,22 @@
         // Function to render a specific page of the PDF
         function renderPage(num) {
             pageRendering = true;
+            updateStatus('Rendering page...');
             
             // Get page
             pdfDoc.getPage(num).then(function(page) {
                 // Adjust canvas size to the page
                 const viewport = page.getViewport({ scale });
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
+                pdfCanvas.height = viewport.height;
+                pdfCanvas.width = viewport.width;
+                
+                // Set up annotation canvas to match
+                annotationCanvas.width = pdfCanvas.width;
+                annotationCanvas.height = pdfCanvas.height;
                 
                 // Render PDF page into canvas context
                 const renderContext = {
-                    canvasContext: ctx,
+                    canvasContext: pdfCtx,
                     viewport: viewport
                 };
                 
@@ -175,13 +318,24 @@
                 // Wait for rendering to finish
                 renderTask.promise.then(function() {
                     pageRendering = false;
+                    updateStatus('Page rendered.');
                     
                     // Check if there's a pending page
                     if (pageNumPending !== null) {
                         renderPage(pageNumPending);
                         pageNumPending = null;
                     }
+                    
+                    // Load annotations for this page/file
+                    loadPageAnnotations();
+                    
+                }).catch(function(error) {
+                    updateStatus('Error rendering page: ' + error);
+                    pageRendering = false;
                 });
+            }).catch(function(error) {
+                updateStatus('Error getting page: ' + error);
+                pageRendering = false;
             });
             
             // Update page counters
@@ -213,22 +367,21 @@
             queueRenderPage(pageNum);
         }
 
-        document.getElementById('prev').addEventListener('click', onPrevPage);
-        document.getElementById('next').addEventListener('click', onNextPage);
-
         // Function to load and display a PDF
-        async function loadPDF(url) {
+        async function loadPDF(url, fileName) {
             try {
-                // Reset page number
-                pageNum = 1;
+                // Save annotations of current PDF before loading a new one
+                savePageAnnotations();
                 
-                // Show loading message on canvas
-                ctx.fillStyle = "#f6f8fa";
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = "#24292e";
-                ctx.font = "20px Arial";
-                ctx.textAlign = "center";
-                ctx.fillText("Loading PDF...", canvas.width/2, canvas.height/2);
+                // Reset page number and update current URL
+                pageNum = 1;
+                currentPdfUrl = url;
+                currentPdfName = fileName;
+                
+                // Clear current annotation canvas
+                clearAnnotationCanvas();
+                
+                updateStatus('Loading PDF...');
                 
                 // Fetch and load the PDF
                 const loadingTask = pdfjsLib.getDocument(url);
@@ -242,24 +395,297 @@
                     
                     // Render the first page
                     renderPage(pageNum);
+                    
                 }, function(error) {
                     console.error('Error loading PDF:', error);
-                    ctx.fillStyle = "#f6f8fa";
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.fillStyle = "#d73a49";
-                    ctx.font = "20px Arial";
-                    ctx.textAlign = "center";
-                    ctx.fillText("Error loading PDF", canvas.width/2, canvas.height/2-20);
-                    ctx.font = "16px Arial";
-                    ctx.fillText("This may not be a PDF file or it's not accessible", canvas.width/2, canvas.height/2+20);
+                    updateStatus('Error loading PDF: ' + error.message);
+                    
+                    // Show error on the canvas
+                    pdfCtx.fillStyle = "#f6f8fa";
+                    pdfCtx.fillRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+                    pdfCtx.fillStyle = "#d73a49";
+                    pdfCtx.font = "20px Arial";
+                    pdfCtx.textAlign = "center";
+                    pdfCtx.fillText("Error loading PDF", pdfCanvas.width/2, pdfCanvas.height/2-20);
+                    pdfCtx.font = "16px Arial";
+                    pdfCtx.fillText("This may not be a PDF file or it's not accessible", pdfCanvas.width/2, pdfCanvas.height/2+20);
                 });
             } catch (error) {
                 console.error('Error loading PDF:', error);
+                updateStatus('Error loading PDF: ' + error);
             }
         }
+        
+        // Function to update status message
+        function updateStatus(message) {
+            const statusElement = document.getElementById('status-message');
+            statusElement.textContent = message;
+            // Clear message after 3 seconds
+            setTimeout(() => {
+                if (statusElement.textContent === message) {
+                    statusElement.textContent = '';
+                }
+            }, 3000);
+        }
+        
+        // Function for zoom in
+        function zoomIn() {
+            if (scale >= 3.0) return; // Max zoom
+            scale += 0.25;
+            updateZoomDisplay();
+            queueRenderPage(pageNum);
+        }
+        
+        // Function for zoom out
+        function zoomOut() {
+            if (scale <= 0.5) return; // Min zoom
+            scale -= 0.25;
+            updateZoomDisplay();
+            queueRenderPage(pageNum);
+        }
+        
+        // Update zoom level display
+        function updateZoomDisplay() {
+            document.getElementById('zoom-level').textContent = `${Math.round(scale * 100)}%`;
+        }
+        
+       // Function to set active tool
+function setActiveTool(tool) {
+    currentTool = tool;
+    
+    // Update button appearances
+    document.getElementById('draw-tool').classList.remove('active');
+    document.getElementById('text-tool').classList.remove('active');
+    document.getElementById('eraser-tool').classList.remove('active');
+    
+    if (tool === 'draw') {
+        document.getElementById('draw-tool').classList.add('active');
+        annotationCanvas.style.cursor = 'crosshair';
+    } else if (tool === 'text') {
+        document.getElementById('text-tool').classList.add('active');
+        annotationCanvas.style.cursor = 'text';
+    } else if (tool === 'eraser') {
+        document.getElementById('eraser-tool').classList.add('active');
+        annotationCanvas.style.cursor = 'url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAAH6ji2bAAAABGdBTUEAALGPC/xhBQAAAnNJREFUOBGdVL1rU1EcPfdGQytYinQoVoRCi4PJoEMHHUTcFBcFB8HNf8DNycWlg4vQxcFRdHEL4uIfUEq1EOzgVqVQiA1pNMm997vfvef1JqUZvPC7nHu+c77vd8+9X6pUKgMfCkMgkUgEVqvVdCaT8VJl8rjQw6yvr+9bXV1d9nq9Q/l8/hPNlonZ2dmxXC4XKJVKriRBYDAY+IbD4UGn09mUG9zlcvmIRqM7WEQSOApjrVZrS2Jra6sry+VynbPZ7JQOikQiw1Qt7JJUMBgM02L4B5ifnx9bXFycwm3HVMTcVJFIs9m0JZ1Op8AjsIqKQIFCUaDDUDQsJRpoJBqNBs3n89e7u7sHx8fHbx2FRDqdPpbJZH48PT39+PPz82O32/0gS7KwsLA9Pj5+WiwWP2ezWTS80+mcyjJZnRBQmQg0aLfbPf7+/v7t/f39L7LUQbOLi4vnV1dXHxcWFrewLJ+cnJljnHLJuq4LAzkTAN3X11eXl5fPtFvttv1yqd2SIG6VUinNka7T+WM6lUoys8vLy1AGo3i2srJyRBXPnFAsFk+wOJM86AQEtK4hC+7GYjE364HBAff9/X2DNGyLHnDq2G63P4g8c5XBgHWG9SPjFZvN5iWKYKVSaQlFpkALsizDcnlnZ2d/fX39HcINhUrK5/OegALZxQgvJoijBwcHx/n8yLOzs6/n5+c/IkM5HI44hUKh5bPZ7F0q1+OZE9Yh6n7P6/W+IsMz9ouHR0dHB0TDW8dBzwUNQHF2dnbYaDR2pDvInLQR4wJKz+VyP9rt9nGhUEgTk+YRH4HqDAaDn2QA6xw4RsoC8NKTpsm+OCNY3e/3d7C4try8LIM6im/lSWiUAed8EbFtQH8U4o+Tp6enrx6P57AUrvlf8D+FTpfaD8AAAABJRU5ErkJggg==) 8 8, auto';
+    }
+}
 
-        // Load files when the page loads
-        window.onload = fetchGitHubFiles;
-    </script>
-</body>
-</html>
+// Function to clear annotation canvas
+function clearAnnotationCanvas() {
+    annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+}
+
+// Function to get annotation storage key
+function getAnnotationKey() {
+    return `${currentPdfName}_page_${pageNum}`;
+}
+
+// Function to save page annotations to memory
+function savePageAnnotations() {
+    if (!currentPdfName) return;
+    
+    const key = getAnnotationKey();
+    const annotationData = annotationCanvas.toDataURL();
+    
+    // Store this page's annotations
+    if (!annotations[currentPdfName]) {
+        annotations[currentPdfName] = {};
+    }
+    annotations[currentPdfName][pageNum] = annotationData;
+}
+
+// Function to load page annotations from memory
+function loadPageAnnotations() {
+    if (!currentPdfName) return;
+    
+    const key = getAnnotationKey();
+    
+    // Check if we have annotations for this page
+    if (annotations[currentPdfName] && annotations[currentPdfName][pageNum]) {
+        const annotationData = annotations[currentPdfName][pageNum];
+        const img = new Image();
+        img.onload = function() {
+            annotCtx.drawImage(img, 0, 0);
+        };
+        img.src = annotationData;
+    } else {
+        clearAnnotationCanvas();
+    }
+}
+
+// Function to save all annotations to local storage
+function saveAnnotations() {
+    // First save current page annotations
+    savePageAnnotations();
+    
+    // Then save all to local storage
+    try {
+        localStorage.setItem('pdfAnnotations', JSON.stringify(annotations));
+        updateStatus('Annotations saved successfully!');
+    } catch (error) {
+        updateStatus('Error saving annotations: ' + error.message);
+        console.error('Error saving annotations:', error);
+    }
+}
+
+// Function to load all annotations from local storage
+function loadAnnotations() {
+    try {
+        const savedAnnotations = localStorage.getItem('pdfAnnotations');
+        if (savedAnnotations) {
+            annotations = JSON.parse(savedAnnotations);
+            updateStatus('Annotations loaded from local storage.');
+        }
+    } catch (error) {
+        updateStatus('Error loading saved annotations: ' + error.message);
+        console.error('Error loading annotations:', error);
+    }
+}
+
+// Handle mouse events for drawing
+function startDrawing(e) {
+    isDrawing = true;
+    
+    // Hide text input when drawing starts
+    if (textInput.style.display === 'block') {
+        if (textInput.value.trim() !== '') {
+            commitText();
+        } else {
+            hideTextInput();
+        }
+    }
+    
+    const rect = annotationCanvas.getBoundingClientRect();
+    lastX = e.clientX - rect.left;
+    lastY = e.clientY - rect.top;
+    
+    // For text tool, show text input at click position
+    if (currentTool === 'text') {
+        isDrawing = false;
+        showTextInput(lastX, lastY);
+        return;
+    }
+}
+
+function draw(e) {
+    if (!isDrawing) return;
+    
+    const rect = annotationCanvas.getBoundingClientRect();
+    const currentX = e.clientX - rect.left;
+    const currentY = e.clientY - rect.top;
+    
+    annotCtx.lineJoin = 'round';
+    annotCtx.lineCap = 'round';
+    
+    if (currentTool === 'draw') {
+        annotCtx.globalCompositeOperation = 'source-over';
+        annotCtx.strokeStyle = strokeColor;
+        annotCtx.lineWidth = lineWidth;
+    } else if (currentTool === 'eraser') {
+        annotCtx.globalCompositeOperation = 'destination-out';
+        annotCtx.lineWidth = lineWidth * 2; // Larger eraser
+    }
+    
+    annotCtx.beginPath();
+    annotCtx.moveTo(lastX, lastY);
+    annotCtx.lineTo(currentX, currentY);
+    annotCtx.stroke();
+    
+    lastX = currentX;
+    lastY = currentY;
+}
+
+function stopDrawing() {
+    if (isDrawing) {
+        isDrawing = false;
+        // Save the current state
+        savePageAnnotations();
+    }
+}
+
+// Text handling functions
+function showTextInput(x, y) {
+    textPosition.x = x;
+    textPosition.y = y;
+    
+    textInput.style.left = x + 'px';
+    textInput.style.top = y + 'px';
+    textInput.style.display = 'block';
+    textInput.style.color = strokeColor;
+    textInput.style.fontSize = textSize + 'px';
+    textInput.focus();
+}
+
+function hideTextInput() {
+    textInput.style.display = 'none';
+    textInput.value = '';
+}
+
+function commitText() {
+    if (!textInput.value.trim()) {
+        hideTextInput();
+        return;
+    }
+    
+    const text = textInput.value;
+    annotCtx.font = `${textSize}px Arial`;
+    annotCtx.fillStyle = strokeColor;
+    annotCtx.textBaseline = 'top';
+    annotCtx.fillText(text, textPosition.x, textPosition.y);
+    
+    hideTextInput();
+    savePageAnnotations();
+}
+
+// Set up event listeners
+document.addEventListener('DOMContentLoaded', function() {
+    // PDF navigation buttons
+    document.getElementById('prev').addEventListener('click', onPrevPage);
+    document.getElementById('next').addEventListener('click', onNextPage);
+    
+    // Zoom buttons
+    document.getElementById('zoom-in').addEventListener('click', zoomIn);
+    document.getElementById('zoom-out').addEventListener('click', zoomOut);
+    
+    // Tool buttons
+    document.getElementById('draw-tool').addEventListener('click', () => setActiveTool('draw'));
+    document.getElementById('text-tool').addEventListener('click', () => setActiveTool('text'));
+    document.getElementById('eraser-tool').addEventListener('click', () => setActiveTool('eraser'));
+    document.getElementById('clear-annotations').addEventListener('click', () => {
+        clearAnnotationCanvas();
+        savePageAnnotations();
+    });
+    document.getElementById('save-annotations').addEventListener('click', saveAnnotations);
+    
+    // Color and line width controls
+    document.getElementById('color-picker').addEventListener('input', function(e) {
+        strokeColor = e.target.value;
+    });
+    document.getElementById('line-width').addEventListener('change', function(e) {
+        lineWidth = parseInt(e.target.value);
+    });
+    
+    // Drawing event listeners
+    annotationCanvas.addEventListener('mousedown', startDrawing);
+    annotationCanvas.addEventListener('mousemove', draw);
+    annotationCanvas.addEventListener('mouseup', stopDrawing);
+    annotationCanvas.addEventListener('mouseout', stopDrawing);
+    
+    // Text input event listeners
+    textInput.addEventListener('blur', commitText);
+    textInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            commitText();
+        }
+    });
+    
+    // Set initial active tool
+    setActiveTool('draw');
+    
+    // Load files when page loads
+    fetchGitHubFiles();
+});
+<body/>
+<script/>
+<html/>
