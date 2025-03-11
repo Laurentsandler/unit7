@@ -562,6 +562,9 @@ function startDrawing(e) {
     // For text tool, show text input at click position
     if (currentTool === 'text') {
         isDrawing = false;
+        
+        // Calculate position relative to the canvas
+        const pdfContainer = document.getElementById('pdf-container');
         showTextInput(lastX, lastY);
         return;
     }
@@ -608,8 +611,14 @@ function showTextInput(x, y) {
     textPosition.x = x;
     textPosition.y = y;
     
-    textInput.style.left = x + 'px';
-    textInput.style.top = y + 'px';
+    // Get the scroll position of the PDF container
+    const container = document.getElementById('pdf-container');
+    const scrollLeft = container.scrollLeft;
+    const scrollTop = container.scrollTop;
+    
+    // Adjust position for scroll
+    textInput.style.left = (x + pdfCanvas.offsetLeft - scrollLeft) + 'px';
+    textInput.style.top = (y + pdfCanvas.offsetTop - scrollTop) + 'px';
     textInput.style.display = 'block';
     textInput.style.color = strokeColor;
     textInput.style.fontSize = textSize + 'px';
