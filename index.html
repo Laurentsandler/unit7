@@ -609,6 +609,27 @@ function renderTextAnnotation(textObj) {
     annotCtx.font = `${xSize * 0.8}px Arial`;
     annotCtx.textBaseline = 'top';
     annotCtx.fillText('×', textObj.x + textWidth + 3, textObj.y - 1);
+    
+    // Add event listener for "x" click
+    annotationCanvas.addEventListener('click', function(e) {
+        const coords = getCanvasCoordinates(e, annotationCanvas);
+        if (coords.x >= textObj.x + textWidth + 2 && coords.x <= textObj.x + textWidth + 2 + xSize &&
+            coords.y >= textObj.y - 2 && coords.y <= textObj.y - 2 + xSize) {
+            deleteTextAnnotation(textObj.id);
+        }
+    });
+}
+
+// Function to delete text annotation
+function deleteTextAnnotation(textId) {
+    if (!currentPdfName || !documentAnnotations[currentPdfName] || !documentAnnotations[currentPdfName][pageNum]) return;
+    
+    const textIndex = documentAnnotations[currentPdfName][pageNum].texts.findIndex(t => t.id === textId);
+    if (textIndex !== -1) {
+        documentAnnotations[currentPdfName][pageNum].texts.splice(textIndex, 1);
+        renderAnnotations();
+        saveAnnotations();
+    }
 }
 
 // Function to clear annotation canvas
