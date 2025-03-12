@@ -1241,7 +1241,7 @@ async function generatePracticeQuestions() {
     updateStatus('Generating practice questions...');
 
     try {
-        const response = await fetch('https://google-gemini-api-url.com/generate-questions', {
+        const response = await fetch('https://gemini.googleapis.com/v1/generateQuestions', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
