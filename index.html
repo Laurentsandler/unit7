@@ -883,10 +883,37 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('text-tool').addEventListener('click', () => setActiveTool('text'));
     document.getElementById('eraser-tool').addEventListener('click', () => setActiveTool('eraser'));
     document.getElementById('select-tool').addEventListener('click', () => setActiveTool('select')); // Pe3ed
-    document.getElementById('clear-annotations').addEventListener('click', () => {
-        clearAnnotationCanvas();
-        savePageAnnotations();
-    });
+   // Update the clear button event listener (around line 886-889)
+document.getElementById('clear-annotations').addEventListener('click', () => {
+    // Only clear the current page annotations
+    clearCurrentPageAnnotations();
+    updateStatus('Cleared annotations from current page.');
+});
+
+// Add this new function to specifically clear annotations only for the current page
+function clearCurrentPageAnnotations() {
+    if (!currentPdfName) return;
+    
+    // Clear canvas visually
+    annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+    
+    // Clear drawing annotations for current page only
+    if (annotations[currentPdfName]) {
+        // Set current page annotations to an empty canvas data URL
+        const emptyCanvas = document.createElement('canvas');
+        emptyCanvas.width = annotationCanvas.width;
+        emptyCanvas.height = annotationCanvas.height;
+        annotations[currentPdfName][pageNum] = emptyCanvas.toDataURL();
+    }
+    
+    // Clear text annotations for current page only
+    if (textAnnotations[currentPdfName]) {
+        textAnnotations[currentPdfName][pageNum] = [];
+    }
+    
+    // Save these changes
+    saveAnnotations();
+}
     document.getElementById('save-annotations').addEventListener('click', saveAnnotations);
     
     // Color and line width controls
