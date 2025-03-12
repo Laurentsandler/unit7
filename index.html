@@ -132,13 +132,12 @@
             display: none;
             position: absolute;
             border: 1px dashed #0366d6;
-            background: rgba(255, 255, 255, 0.7);
+            background: transparent;
             font-family: Arial;
-            z-index: 10;
+            z-index: 3;
             padding: 5px;
-            resize: both;
-            min-width: 100px;
-            min-height: 20px;
+            resize: none;
+            overflow: hidden;
         }
         #status-message {
             font-style: italic;
@@ -190,15 +189,15 @@
                 <div id="pdf-viewer">
                     <canvas id="pdf-canvas"></canvas>
                     <canvas id="annotation-canvas"></canvas>
+                    <textarea id="text-input"></textarea>
                 </div>
-                <textarea id="text-input"></textarea>
                 <div id="status-message"></div>
             </div>
         </div>
     </div>
 
     <script>
-       // Set up PDF.js
+// Set up PDF.js
 const pdfjsLib = window['pdfjs-dist/build/pdf'];
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
 
@@ -221,13 +220,16 @@ let pdfContainer = document.getElementById('pdf-container');
 let isDrawing = false;
 let lastX = 0;
 let lastY = 0;
-let currentTool = 'draw'; // 'draw', 'text', 'eraser'
+let currentTool = 'draw'; // 'draw', 'text', 'eraser', 'move'
 let lineWidth = 3;
 let strokeColor = '#FF0000';
 let textInput = document.getElementById('text-input');
 let textPosition = { x: 0, y: 0 };
 let textSize = 16;
 let annotations = {}; // Object to store annotations by file and page
+let textAnnotations = {}; // Store text annotations separately for editing
+let selectedTextId = null; // ID of text being moved
+let isMovingText = false; // Flag for text movement
 
 // Function to fetch GitHub files
 async function fetchGitHubFiles() {
@@ -475,6 +477,10 @@ function setActiveTool(tool) {
 // Function to clear annotation canvas
 function clearAnnotationCanvas() {
     annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+    // Clear text annotations too
+    if (textAnnotations[currentPdfName]) {
+        textAnnotations[currentPdfName][pageNum] = [];
+    }
 }
 
 // Function to get annotation storage key
@@ -494,6 +500,11 @@ function savePageAnnotations() {
         annotations[currentPdfName] = {};
     }
     annotations[currentPdfName][pageNum] = annotationData;
+    
+    // Save text annotations alongside with the canvas
+    if (!textAnnotations[currentPdfName]) {
+        textAnnotations[currentPdfName] = {};
+    }
 }
 
 // Function to load page annotations from memory
@@ -513,6 +524,34 @@ function loadPageAnnotations() {
     } else {
         clearAnnotationCanvas();
     }
+    
+    // Render any text annotations
+    if (textAnnotations[currentPdfName] && textAnnotations[currentPdfName][pageNum]) {
+        for (const textObj of textAnnotations[currentPdfName][pageNum]) {
+            renderTextAnnotation(textObj);
+        }
+    }
+}
+
+// Function to render a text annotation with delete button
+function renderTextAnnotation(textObj) {
+    // Render the text on the canvas
+    annotCtx.font = `${textObj.size}px Arial`;
+    annotCtx.fillStyle = textObj.color;
+    annotCtx.textBaseline = 'top';
+    annotCtx.fillText(textObj.text, textObj.x, textObj.y);
+    
+    // Draw a small "x" delete button
+    const textWidth = annotCtx.measureText(textObj.text).width;
+    const xSize = textObj.size * 0.8; // Size of the "x" relative to text
+    
+    annotCtx.fillStyle = 'rgba(255, 0, 0, 0.8)';
+    annotCtx.fillRect(textObj.x + textWidth + 2, textObj.y - 2, xSize, xSize);
+    
+    annotCtx.fillStyle = 'white';
+    annotCtx.font = `${xSize * 0.8}px Arial`;
+    annotCtx.textBaseline = 'top';
+    annotCtx.fillText('×', textObj.x + textWidth + 3, textObj.y - 1);
 }
 
 // Function to save all annotations to local storage
@@ -523,6 +562,7 @@ function saveAnnotations() {
     // Then save all to local storage
     try {
         localStorage.setItem('pdfAnnotations', JSON.stringify(annotations));
+        localStorage.setItem('pdfTextAnnotations', JSON.stringify(textAnnotations));
         updateStatus('Annotations saved successfully!');
     } catch (error) {
         updateStatus('Error saving annotations: ' + error.message);
@@ -534,19 +574,69 @@ function saveAnnotations() {
 function loadAnnotations() {
     try {
         const savedAnnotations = localStorage.getItem('pdfAnnotations');
+        const savedTextAnnotations = localStorage.getItem('pdfTextAnnotations');
+        
         if (savedAnnotations) {
             annotations = JSON.parse(savedAnnotations);
-            updateStatus('Annotations loaded from local storage.');
         }
+        
+        if (savedTextAnnotations) {
+            textAnnotations = JSON.parse(savedTextAnnotations);
+        }
+        
+        updateStatus('Annotations loaded from local storage.');
     } catch (error) {
         updateStatus('Error loading saved annotations: ' + error.message);
         console.error('Error loading annotations:', error);
     }
 }
 
+// Generate unique ID for text annotations
+function generateUniqueId() {
+    return Date.now().toString(36) + Math.random().toString(36).substring(2);
+}
+
 // Handle mouse events for drawing
 function startDrawing(e) {
-    isDrawing = true;
+    const rect = annotationCanvas.getBoundingClientRect();
+    lastX = e.clientX - rect.left;
+    lastY = e.clientY - rect.top;
+    
+    // Check if clicked on a text annotation delete button
+    if (textAnnotations[currentPdfName] && textAnnotations[currentPdfName][pageNum]) {
+        for (let i = 0; i < textAnnotations[currentPdfName][pageNum].length; i++) {
+            const textObj = textAnnotations[currentPdfName][pageNum][i];
+            const textWidth = annotCtx.measureText(textObj.text).width;
+            const xSize = textObj.size * 0.8;
+            
+            // Check if click is on the delete button
+                        // Check if click is on the delete button
+            if (lastX >= textObj.x + textWidth + 2 && 
+                lastX <= textObj.x + textWidth + 2 + xSize &&
+                lastY >= textObj.y - 2 &&
+                lastY <= textObj.y - 2 + xSize) {
+                
+                // Remove this text annotation
+                textAnnotations[currentPdfName][pageNum].splice(i, 1);
+                
+                // Redraw canvas
+                redrawCanvas();
+                return;
+            }
+            
+            // Check if click is on the text itself (for moving)
+            if (lastX >= textObj.x && 
+                lastX <= textObj.x + textWidth &&
+                lastY >= textObj.y &&
+                lastY <= textObj.y + textObj.size) {
+                
+                // Set this text as selected for moving
+                selectedTextId = textObj.id;
+                isMovingText = true;
+                return;
+            }
+        }
+    }
     
     // Hide text input when drawing starts
     if (textInput.style.display === 'block') {
@@ -557,9 +647,7 @@ function startDrawing(e) {
         }
     }
     
-    const rect = annotationCanvas.getBoundingClientRect();
-    lastX = e.clientX - rect.left;
-    lastY = e.clientY - rect.top;
+    isDrawing = true;
     
     // For text tool, show text input at click position
     if (currentTool === 'text') {
@@ -570,11 +658,33 @@ function startDrawing(e) {
 }
 
 function draw(e) {
-    if (!isDrawing) return;
-    
     const rect = annotationCanvas.getBoundingClientRect();
     const currentX = e.clientX - rect.left;
     const currentY = e.clientY - rect.top;
+    
+    // Handle text movement
+    if (isMovingText && selectedTextId) {
+        if (!textAnnotations[currentPdfName] || !textAnnotations[currentPdfName][pageNum]) return;
+        
+        // Find the selected text
+        const textObj = textAnnotations[currentPdfName][pageNum].find(t => t.id === selectedTextId);
+        if (textObj) {
+            // Update text position
+            textObj.x = currentX - (lastX - textObj.x);
+            textObj.y = currentY - (lastY - textObj.y);
+            
+            // Update last position
+            lastX = currentX;
+            lastY = currentY;
+            
+            // Redraw canvas
+            redrawCanvas();
+        }
+        return;
+    }
+    
+    // Handle regular drawing
+    if (!isDrawing) return;
     
     annotCtx.lineJoin = 'round';
     annotCtx.lineCap = 'round';
@@ -603,21 +713,60 @@ function stopDrawing() {
         // Save the current state
         savePageAnnotations();
     }
+    
+    // Stop moving text
+    if (isMovingText) {
+        isMovingText = false;
+        selectedTextId = null;
+        savePageAnnotations();
+    }
+}
+
+// Function to redraw the canvas
+function redrawCanvas() {
+    // Clear canvas
+    annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+    
+    // Redraw base annotations from image data
+    if (annotations[currentPdfName] && annotations[currentPdfName][pageNum]) {
+        const annotationData = annotations[currentPdfName][pageNum];
+        const img = new Image();
+        img.onload = function() {
+            annotCtx.drawImage(img, 0, 0);
+            
+            // Then draw text annotations on top
+            if (textAnnotations[currentPdfName] && textAnnotations[currentPdfName][pageNum]) {
+                for (const textObj of textAnnotations[currentPdfName][pageNum]) {
+                    renderTextAnnotation(textObj);
+                }
+            }
+        };
+        img.src = annotationData;
+    } else {
+        // If no base annotations, just draw text annotations
+        if (textAnnotations[currentPdfName] && textAnnotations[currentPdfName][pageNum]) {
+            for (const textObj of textAnnotations[currentPdfName][pageNum]) {
+                renderTextAnnotation(textObj);
+            }
+        }
+    }
 }
 
 // Text handling functions
 function showTextInput(x, y) {
-    // Store the actual position on the canvas
+    // Store the actual position on the canvas for later drawing
     textPosition.x = x;
     textPosition.y = y;
     
-    // Calculate the position for the text input element
+    // Calculate position for text input element in viewport coordinates
     const rect = annotationCanvas.getBoundingClientRect();
-    const containerRect = pdfContainer.getBoundingClientRect();
+    const viewportX = rect.left + x;
+    const viewportY = rect.top + y;
     
-    // Set the text input position
-    textInput.style.left = (rect.left + x - containerRect.left) + 'px';
-    textInput.style.top = (rect.top + y - containerRect.top) + 'px';
+    // Position the text input directly at cursor position
+    textInput.style.position = 'absolute';
+    textInput.style.left = viewportX + 'px';
+    textInput.style.top = viewportY + 'px';
     textInput.style.display = 'block';
     textInput.style.color = strokeColor;
     textInput.style.fontSize = textSize + 'px';
@@ -641,10 +790,30 @@ function commitText() {
     }
     
     const text = textInput.value;
-    annotCtx.font = `${textSize}px Arial`;
-    annotCtx.fillStyle = strokeColor;
-    annotCtx.textBaseline = 'top';
-    annotCtx.fillText(text, textPosition.x, textPosition.y);
+    
+    // Create a text annotation object
+    const textObj = {
+        id: generateUniqueId(),
+        text: text,
+        x: textPosition.x,
+        y: textPosition.y,
+        size: textSize,
+        color: strokeColor
+    };
+    
+    // Initialize if needed
+    if (!textAnnotations[currentPdfName]) {
+        textAnnotations[currentPdfName] = {};
+    }
+    if (!textAnnotations[currentPdfName][pageNum]) {
+        textAnnotations[currentPdfName][pageNum] = [];
+    }
+    
+    // Add to text annotations array
+    textAnnotations[currentPdfName][pageNum].push(textObj);
+    
+    // Draw the text on canvas
+    renderTextAnnotation(textObj);
     
     hideTextInput();
     savePageAnnotations();
@@ -699,6 +868,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load files when page loads
     fetchGitHubFiles();
 });
-
 </script>
 </html>
+
