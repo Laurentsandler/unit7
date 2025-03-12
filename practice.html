@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Practice Questions</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #24292e;
+            margin-bottom: 20px;
+        }
+        .question-container {
+            margin-bottom: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #f6f8fa;
+        }
+    </style>
+</head>
+<body>
+    <h1>Generated Practice Questions</h1>
+    <div id="questions-container"></div>
+
+    <script>
+        // Function to get query parameters
+        function getQueryParams() {
+            const params = {};
+            const queryString = window.location.search.substring(1);
+            const regex = /([^&=]+)=([^&]*)/g;
+            let match;
+            while (match = regex.exec(queryString)) {
+                params[decodeURIComponent(match[1])] = decodeURIComponent(match[2]);
+            }
+            return params;
+        }
+
+        // Function to populate questions
+        function populateQuestions(questions) {
+            const container = document.getElementById('questions-container');
+            questions.forEach((question, index) => {
+                const questionDiv = document.createElement('div');
+                questionDiv.className = 'question-container';
+                questionDiv.textContent = `${index + 1}. ${question}`;
+                container.appendChild(questionDiv);
+            });
+        }
+
+        // Get questions from query parameters and populate
+        const queryParams = getQueryParams();
+        if (queryParams.questions) {
+            const questions = JSON.parse(queryParams.questions);
+            populateQuestions(questions);
+        } else {
+            document.getElementById('questions-container').textContent = 'No questions available.';
+        }
+    </script>
+</body>
+</html>
