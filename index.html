@@ -507,26 +507,16 @@ function savePageAnnotations() {
     tempCanvas.height = annotationCanvas.height;
     const tempCtx = tempCanvas.getContext('2d');
     
-    // Get the current image data of drawing annotations only
-    if (annotations[currentPdfName][pageNum]) {
-        const img = new Image();
-        img.onload = function() {
-            tempCtx.drawImage(img, 0, 0);
-            // Store the drawing annotations only
-            annotations[currentPdfName][pageNum] = tempCanvas.toDataURL();
-        };
-        img.src = annotations[currentPdfName][pageNum];
-    } else {
-        // If no annotations exist yet, store an empty canvas
-        annotations[currentPdfName][pageNum] = tempCanvas.toDataURL();
-    }
+    // Capture the current state of the annotation canvas
+    tempCtx.drawImage(annotationCanvas, 0, 0);
+    
+    // Store the drawing annotations
+    annotations[currentPdfName][pageNum] = tempCanvas.toDataURL();
     
     // Text annotations are already stored separately in the textAnnotations object
     if (!textAnnotations[currentPdfName]) {
         textAnnotations[currentPdfName] = {};
     }
-    // We don't need to do anything else for text annotations as they
-    // are already updated in place by reference
 }
 
 // Function to load page annotations from memory
@@ -576,21 +566,7 @@ function renderTextAnnotation(textObj) {
     annotCtx.fillText('×', textObj.x + textWidth + 3, textObj.y - 1);
 }
 
-// Function to save all annotations to local storage
-function saveAnnotations() {
-    // First save current page annotations
-    savePageAnnotations();
-    
-    // Then save all to local storage
-    try {
-        localStorage.setItem('pdfAnnotations', JSON.stringify(annotations));
-        localStorage.setItem('pdfTextAnnotations', JSON.stringify(textAnnotations));
-        updateStatus('Annotations saved successfully!');
-    } catch (error) {
-        updateStatus('Error saving annotations: ' + error.message);
-        console.error('Error saving annotations:', error);
-    }
-}
+
 
 // Function to load all annotations from local storage
 function loadAnnotations() {
