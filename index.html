@@ -9,13 +9,6 @@
     <!-- Add PDF-Lib for better annotation handling -->
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://unpkg.com/downloadjs@1.4.7"></script>
-    <script type="importmap">
-      {
-        "imports": {
-          "@google/generative-ai": "https://esm.run/@google/generative-ai"
-        }
-      }
-    </script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -1248,7 +1241,10 @@ async function generatePracticeQuestions() {
     updateStatus('Generating practice questions...');
 
     try {
-        const questions = await run(currentPdfUrl);
+        const prompt = 'Generate 10 practice questions based on the questions in the PDF';
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const questions = response.text.split('\n').filter(q => q.trim() !== '');
         redirectToPracticePage(questions);
     } catch (error) {
         console.error('Error generating practice questions:', error);
@@ -1265,25 +1261,24 @@ function redirectToPracticePage(questions) {
 
 // Add event listener for the "Practice" button
 document.getElementById('practice').addEventListener('click', generatePracticeQuestions);
+</script>
+<script type="importmap">
+    {
+        "imports": {
+            "@google/generative-ai": "https://esm.run/@google/generative-ai"
+        }
+    }
+</script>
 
 <script type="module">
-  import { GoogleGenerativeAI } from "@google/generative-ai";
+    import { GoogleGenerativeAI } from "@google/generative-ai";
 
-  // Fetch your API_KEY
-  const API_KEY = "AIzaSyDlnzhYoACjTrAjo_murZPYHnZ2wo1CZBk";
+    // Fetch your API_KEY
+    const API_KEY = "AIzaSyDlnzhYoACjTrAjo_murZPYHnZ2wo1CZBk";
 
-  // Access your API key (see "Set up your API key" above)
-  const genAI = new GoogleGenerativeAI(API_KEY);
-  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-  async function run(pdfUrl) {
-    const prompt = `Generate 10 practice questions based on the questions in the PDF at ${pdfUrl}`;
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text().replace(/\*/g, ''); // Remove \* characters
-    const questions = text.split('\n').filter(q => q.trim() !== '');
-    return questions;
-  }
+    // Access your API key (see "Set up your API key" above)
+    const genAI = new GoogleGenerativeAI(API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 </script>
 </body>
 </html>
