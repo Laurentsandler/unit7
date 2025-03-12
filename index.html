@@ -3,9 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub PDF Viewer with Annotations</title>
+    <title>GitHub PDF Viewer with Enhanced Annotations</title>
     <!-- Include PDF.js from CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <!-- Add PDF-Lib for better annotation handling -->
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://unpkg.com/downloadjs@1.4.7"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -146,7 +149,7 @@
     </style>
 </head>
 <body>
-    <h1>GitHub Files Viewer with Annotations</h1>
+    <h1>GitHub Files Viewer with Enhanced Annotations</h1>
     
     <div id="container">
         <div id="file-list">
@@ -173,7 +176,7 @@
                     <button id="draw-tool" title="Draw">Draw</button>
                     <button id="text-tool" title="Add Text">Text</button>
                     <button id="eraser-tool" title="Eraser">Eraser</button>
-                    <button id="select-tool" title="Select">Select</button> <!-- Pe3ed -->
+                    <button id="select-tool" title="Select">Select</button>
                     <input type="color" id="color-picker" value="#FF0000" title="Color">
                     <select id="line-width" title="Line Width">
                         <option value="1">Thin</option>
@@ -181,8 +184,10 @@
                         <option value="5">Thick</option>
                         <option value="10">Very Thick</option>
                     </select>
+                    <button id="reset-viewer" title="Reset Viewer">Reset</button>
                     <button id="clear-annotations" title="Clear All Annotations">Clear</button>
-                    <button id="save-annotations" title="Save Annotations to Local Storage">Save</button>
+                    <button id="save-annotations" title="Save Annotations">Save</button>
+                    <button id="download-pdf" title="Download PDF with Annotations">Download PDF</button>
                 </div>
             </div>
             
@@ -197,13 +202,17 @@
         </div>
     </div>
 
-    <script>
+<script>
+// Add fallback PDF URL
+const FALLBACK_PDF_URL = "https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi-09.pdf";
+
 // Set up PDF.js
 const pdfjsLib = window['pdfjs-dist/build/pdf'];
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
 
 // Variables for PDF viewing
 let pdfDoc = null;
+let pdfBytes = null; // Store the PDF bytes for PDF-Lib
 let pageNum = 1;
 let pageRendering = false;
 let pageNumPending = null;
@@ -221,16 +230,17 @@ let pdfContainer = document.getElementById('pdf-container');
 let isDrawing = false;
 let lastX = 0;
 let lastY = 0;
-let currentTool = 'draw'; // 'draw', 'text', 'eraser', 'move', 'select'
+let currentTool = 'draw'; // 'draw', 'text', 'eraser', 'select'
 let lineWidth = 3;
 let strokeColor = '#FF0000';
 let textInput = document.getElementById('text-input');
 let textPosition = { x: 0, y: 0 };
 let textSize = 16;
-let annotations = {}; // Object to store annotations by file and page
-let textAnnotations = {}; // Store text annotations separately for editing
-let selectedTextId = null; // ID of text being moved
-let isMovingText = false; // Flag for text movement
+let selectedTextId = null;
+let isMovingText = false;
+
+// Enhanced annotation storage system
+let documentAnnotations = {};
 
 // Function to fetch GitHub files
 async function fetchGitHubFiles() {
@@ -291,28 +301,124 @@ async function fetchGitHubFiles() {
         loadAnnotations();
         
     } catch (error) {
-        fileListDiv.innerHTML = `<div class="loading-message">Error: ${error.message}<br>Please make sure the 'Lessons' folder exists and contains files.</div>`;
+        fileListDiv.innerHTML = `<div class="loading-message">Error: ${error.message}<br>Loading fallback PDF for testing.</div>`;
         console.error('Error fetching files:', error);
+        
+        // Add fallback link
+        const fileLink = document.createElement('a');
+        fileLink.className = 'file-link active';
+        fileLink.textContent = "Test PDF";
+        fileLink.onclick = function() {
+            loadPDF(FALLBACK_PDF_URL, "Test PDF");
+        };
+        fileListDiv.appendChild(fileLink);
+        currentFileLink = fileLink;
+        
+        // Load the fallback PDF
+        loadPDF(FALLBACK_PDF_URL, "Test PDF");
     }
 }
 
-// Function to render a specific page of the PDF
+// Function to load and display a PDF
+async function loadPDF(url, fileName) {
+    try {
+        // Cancel any ongoing rendering
+        if (pageRendering) {
+            pageRendering = false;
+            pageNumPending = null;
+        }
+        
+        // Save annotations of current PDF before loading a new one
+        if (currentPdfName) {
+            saveAnnotations();
+        }
+        
+        // Reset page number and update current URL/name
+        pageNum = 1;
+        currentPdfUrl = url;
+        currentPdfName = fileName;
+        
+        // Clear current annotation canvas
+        clearAnnotationCanvas();
+        
+        updateStatus('Loading PDF...');
+        
+        // Fetch and load the PDF
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Network response was not ok: ${response.status}`);
+        }
+        
+        const arrayBuffer = await response.arrayBuffer();
+        pdfBytes = new Uint8Array(arrayBuffer);
+        
+        // Make sure any previous document is properly destroyed
+        if (pdfDoc) {
+            pdfDoc.destroy();
+            pdfDoc = null;
+        }
+        
+        // Load the new document
+        const loadingTask = pdfjsLib.getDocument({data: pdfBytes});
+        
+        loadingTask.promise.then(function(pdf) {
+            pdfDoc = pdf;
+            document.getElementById('page-count').textContent = pdf.numPages;
+            
+            // Enable navigation buttons if there are multiple pages
+            document.getElementById('prev').disabled = (pdf.numPages === 1);
+            document.getElementById('next').disabled = (pdf.numPages === 1);
+            
+            // Render the first page
+            renderPage(pageNum);
+            
+        }).catch(function(error) {
+            console.error('Error loading PDF:', error);
+            updateStatus('Error loading PDF: ' + error.message);
+            
+            // Show error on the canvas
+            pdfCtx.fillStyle = "#f6f8fa";
+            pdfCtx.fillRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+            pdfCtx.fillStyle = "#d73a49";
+            pdfCtx.font = "20px Arial";
+            pdfCtx.textAlign = "center";
+            pdfCtx.fillText("Error loading PDF", pdfCanvas.width/2, pdfCanvas.height/2-20);
+            pdfCtx.font = "16px Arial";
+            pdfCtx.fillText("This may not be a PDF file or it's not accessible", pdfCanvas.width/2, pdfCanvas.height/2+20);
+        });
+    } catch (error) {
+        console.error('Error loading PDF:', error);
+        updateStatus('Error loading PDF: ' + error.message);
+    }
+}
+
+// Enhanced function to render a specific page of the PDF
 function renderPage(num) {
+    if (pageRendering) {
+        // If another page is currently rendering, put this request in the queue
+        pageNumPending = num;
+        return;
+    }
+    
     pageRendering = true;
     updateStatus('Rendering page...');
     
     // Get page
     pdfDoc.getPage(num).then(function(page) {
         // Adjust canvas size to the page
-        const viewport = page.getViewport({ scale });
-        pdfCanvas.height = viewport.height;
-        pdfCanvas.width = viewport.width;
+         const viewport = page.getViewport({ scale });
+    
+    // Set both canvas dimensions
+    pdfCanvas.height = viewport.height;
+    pdfCanvas.width = viewport.width;
+    annotationCanvas.height = viewport.height;
+    annotationCanvas.width = viewport.width;
         
-        // Set up annotation canvas to match
-        annotationCanvas.width = pdfCanvas.width;
-        annotationCanvas.height = pdfCanvas.height;
+        // Clear the canvas before rendering new page
+        pdfCtx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+        annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
         
-        // Render PDF page into canvas context
+        // Create a new render context for each render operation
         const renderContext = {
             canvasContext: pdfCtx,
             viewport: viewport
@@ -325,22 +431,26 @@ function renderPage(num) {
             pageRendering = false;
             updateStatus('Page rendered.');
             
+            // Load annotations for this page/file
+            renderAnnotations();
+            
             // Check if there's a pending page
             if (pageNumPending !== null) {
-                renderPage(pageNumPending);
+                // New page has been requested while this one was rendering
+                const pendingNum = pageNumPending;
                 pageNumPending = null;
+                renderPage(pendingNum);
             }
             
-            // Load annotations for this page/file
-            loadPageAnnotations();
-            
         }).catch(function(error) {
-            updateStatus('Error rendering page: ' + error);
             pageRendering = false;
+            updateStatus('Error rendering page: ' + error);
+            console.error('Render task error:', error);
         });
     }).catch(function(error) {
-        updateStatus('Error getting page: ' + error);
         pageRendering = false;
+        updateStatus('Error getting page: ' + error);
+        console.error('Get page error:', error);
     });
     
     // Update page counters
@@ -370,55 +480,6 @@ function onNextPage() {
     }
     pageNum++;
     queueRenderPage(pageNum);
-}
-
-// Function to load and display a PDF
-async function loadPDF(url, fileName) {
-    try {
-        // Save annotations of current PDF before loading a new one
-        savePageAnnotations();
-        
-        // Reset page number and update current URL
-        pageNum = 1;
-        currentPdfUrl = url;
-        currentPdfName = fileName;
-        
-        // Clear current annotation canvas
-        clearAnnotationCanvas();
-        
-        updateStatus('Loading PDF...');
-        
-        // Fetch and load the PDF
-        const loadingTask = pdfjsLib.getDocument(url);
-        loadingTask.promise.then(function(pdf) {
-            pdfDoc = pdf;
-            document.getElementById('page-count').textContent = pdf.numPages;
-            
-            // Enable navigation buttons if there are multiple pages
-            document.getElementById('prev').disabled = (pdf.numPages === 1);
-            document.getElementById('next').disabled = (pdf.numPages === 1);
-            
-            // Render the first page
-            renderPage(pageNum);
-            
-        }, function(error) {
-            console.error('Error loading PDF:', error);
-            updateStatus('Error loading PDF: ' + error.message);
-            
-            // Show error on the canvas
-            pdfCtx.fillStyle = "#f6f8fa";
-            pdfCtx.fillRect(0, 0, pdfCanvas.width, pdfCanvas.height);
-            pdfCtx.fillStyle = "#d73a49";
-            pdfCtx.font = "20px Arial";
-            pdfCtx.textAlign = "center";
-            pdfCtx.fillText("Error loading PDF", pdfCanvas.width/2, pdfCanvas.height/2-20);
-            pdfCtx.font = "16px Arial";
-            pdfCtx.fillText("This may not be a PDF file or it's not accessible", pdfCanvas.width/2, pdfCanvas.height/2+20);
-        });
-    } catch (error) {
-        console.error('Error loading PDF:', error);
-        updateStatus('Error loading PDF: ' + error);
-    }
 }
 
 // Function to update status message
@@ -454,97 +515,60 @@ function updateZoomDisplay() {
     document.getElementById('zoom-level').textContent = `${Math.round(scale * 100)}%`;
 }
 
-// Function to set active tool
-function setActiveTool(tool) {
-    currentTool = tool;
+// New Enhanced Annotation System
+// Instead of separate storages, use a unified structure
+function initializeAnnotationsForCurrentDocument() {
+    if (!currentPdfName) return; // Add this check
     
-    // Update button appearances
-    document.getElementById('draw-tool').classList.remove('active');
-    document.getElementById('text-tool').classList.remove('active');
-    document.getElementById('eraser-tool').classList.remove('active');
-    document.getElementById('select-tool').classList.remove('active'); // P2e48
-    
-    if (tool === 'draw') {
-        document.getElementById('draw-tool').classList.add('active');
-        annotationCanvas.style.cursor = 'crosshair';
-    } else if (tool === 'text') {
-        document.getElementById('text-tool').classList.add('active');
-        annotationCanvas.style.cursor = 'text';
-    } else if (tool === 'eraser') {
-        document.getElementById('eraser-tool').classList.add('active');
-        annotationCanvas.style.cursor = 'url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAAH6ji2bAAAABGdBTUEAALGPC/xhBQAAAnNJREFUOBGdVL1rU1EcPfdGQytYinQoVoRCi4PJoEMHHUTcFBcFB8HNf8DN[...]';
-    } else if (tool === 'select') { // P2e48
-        document.getElementById('select-tool').classList.add('active');
-        annotationCanvas.style.cursor = 'pointer';
-    }
-}
-
-// Function to clear annotation canvas
-function clearAnnotationCanvas() {
-    annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
-    // Clear text annotations too
-    if (textAnnotations[currentPdfName]) {
-        textAnnotations[currentPdfName][pageNum] = [];
-    }
-}
-
-// Function to get annotation storage key
-function getAnnotationKey() {
-    return `${currentPdfName}_page_${pageNum}`;
-}
-
-function savePageAnnotations() {
-    if (!currentPdfName) return;
-    
-    // Store this page's annotations
-    if (!annotations[currentPdfName]) {
-        annotations[currentPdfName] = {};
+    if (!documentAnnotations[currentPdfName]) {
+        documentAnnotations[currentPdfName] = {};
     }
     
-    // Create a temporary canvas for saving drawing annotations
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = annotationCanvas.width;
-    tempCanvas.height = annotationCanvas.height;
-    const tempCtx = tempCanvas.getContext('2d');
-    
-    // Capture the current state of the annotation canvas
-    tempCtx.drawImage(annotationCanvas, 0, 0);
-    
-    // Store the drawing annotations
-    annotations[currentPdfName][pageNum] = tempCanvas.toDataURL();
-    
-    // Text annotations are already stored separately in the textAnnotations object
-    if (!textAnnotations[currentPdfName]) {
-        textAnnotations[currentPdfName] = {};
-    }
-}
-// Function to load page annotations from memory
-function loadPageAnnotations() {
-    if (!currentPdfName) return;
-    
-    const key = getAnnotationKey();
-    
-    // Check if we have annotations for this page
-    if (annotations[currentPdfName] && annotations[currentPdfName][pageNum]) {
-        const annotationData = annotations[currentPdfName][pageNum];
-        const img = new Image();
-        img.onload = function() {
-            annotCtx.drawImage(img, 0, 0);
+    if (!documentAnnotations[currentPdfName][pageNum]) {
+        documentAnnotations[currentPdfName][pageNum] = {
+            drawings: [],
+            texts: []
         };
-        img.src = annotationData;
-    } else {
-        clearAnnotationCanvas();
-    }
-    
-    // Render any text annotations
-    if (textAnnotations[currentPdfName] && textAnnotations[currentPdfName][pageNum]) {
-        for (const textObj of textAnnotations[currentPdfName][pageNum]) {
-            renderTextAnnotation(textObj);
-        }
     }
 }
 
-// Function to render a text annotation with delete button
+// Draw annotations on the canvas
+function renderAnnotations() {
+    // Clear the annotation canvas first
+    clearAnnotationCanvas();
+    
+    if (!currentPdfName) return;
+    
+    initializeAnnotationsForCurrentDocument();
+    const pageAnnotations = documentAnnotations[currentPdfName][pageNum];
+    
+    // Render drawing annotations
+    for (const drawing of pageAnnotations.drawings) {
+        annotCtx.beginPath();
+        annotCtx.strokeStyle = drawing.color;
+        annotCtx.lineWidth = drawing.lineWidth;
+        annotCtx.lineJoin = 'round';
+        annotCtx.lineCap = 'round';
+        
+        // Draw the path
+        if (drawing.points.length > 0) {
+            annotCtx.moveTo(drawing.points[0].x, drawing.points[0].y);
+            
+            for (let i = 1; i < drawing.points.length; i++) {
+                annotCtx.lineTo(drawing.points[i].x, drawing.points[i].y);
+            }
+        }
+        
+        annotCtx.stroke();
+    }
+    
+    // Render text annotations
+    for (const text of pageAnnotations.texts) {
+        renderTextAnnotation(text);
+    }
+}
+
+// Function to render a text annotation
 function renderTextAnnotation(textObj) {
     // Render the text on the canvas
     annotCtx.font = `${textObj.size}px Arial`;
@@ -565,51 +589,27 @@ function renderTextAnnotation(textObj) {
     annotCtx.fillText('×', textObj.x + textWidth + 3, textObj.y - 1);
 }
 
-function saveAnnotations() {
-    // First save current page annotations
-    savePageAnnotations();
-    
-    // Then save all to local storage
-    try {
-        localStorage.setItem('pdfAnnotations', JSON.stringify(annotations));
-        localStorage.setItem('pdfTextAnnotations', JSON.stringify(textAnnotations));
-        
-        // Add a visual confirmation that saving worked
-        const statusElement = document.getElementById('status-message');
-        statusElement.textContent = 'Annotations saved successfully!';
-        statusElement.style.color = '#05a167'; // Green color for success
-        
-        // Reset status message after a few seconds
-        setTimeout(() => {
-            if (statusElement.textContent === 'Annotations saved successfully!') {
-                statusElement.textContent = '';
-                statusElement.style.color = '#586069'; // Reset to original color
-            }
-        }, 3000);
-    } catch (error) {
-        updateStatus('Error saving annotations: ' + error.message);
-        console.error('Error saving annotations:', error);
-    }
+// Function to clear annotation canvas
+function clearAnnotationCanvas() {
+    annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
 }
-// Function to load all annotations from local storage
-function loadAnnotations() {
-    try {
-        const savedAnnotations = localStorage.getItem('pdfAnnotations');
-        const savedTextAnnotations = localStorage.getItem('pdfTextAnnotations');
-        
-        if (savedAnnotations) {
-            annotations = JSON.parse(savedAnnotations);
-        }
-        
-        if (savedTextAnnotations) {
-            textAnnotations = JSON.parse(savedTextAnnotations);
-        }
-        
-        updateStatus('Annotations loaded from local storage.');
-    } catch (error) {
-        updateStatus('Error loading saved annotations: ' + error.message);
-        console.error('Error loading annotations:', error);
-    }
+
+// Function to clear all annotations on current page
+function clearCurrentPageAnnotations() {
+    if (!currentPdfName) return;
+    
+    initializeAnnotationsForCurrentDocument();
+    
+    // Clear annotations for current page
+    documentAnnotations[currentPdfName][pageNum] = {
+        drawings: [],
+        texts: []
+    };
+    
+    // Clear the canvas
+    clearAnnotationCanvas();
+    updateStatus('Annotations cleared from current page');
+    saveAnnotations();
 }
 
 // Generate unique ID for text annotations
@@ -617,191 +617,18 @@ function generateUniqueId() {
     return Date.now().toString(36) + Math.random().toString(36).substring(2);
 }
 
-function startDrawing(e) {
-    const rect = annotationCanvas.getBoundingClientRect();
-    lastX = e.clientX - rect.left;
-    lastY = e.clientY - rect.top;
-    
-    // Check if clicked on a text annotation delete button
-    if (textAnnotations[currentPdfName] && textAnnotations[currentPdfName][pageNum]) {
-        for (let i = 0; i < textAnnotations[currentPdfName][pageNum].length; i++) {
-            const textObj = textAnnotations[currentPdfName][pageNum][i];
-            
-            // Calculate text width for the specific text object
-            annotCtx.font = `${textObj.size}px Arial`;
-            const textWidth = annotCtx.measureText(textObj.text).width;
-            const xSize = textObj.size * 0.8;
-            
-            // Improved hit detection for delete button
-            const deleteButtonX = textObj.x + textWidth + 2;
-            const deleteButtonY = textObj.y - 2;
-            
-            if (lastX >= deleteButtonX && 
-                lastX <= deleteButtonX + xSize &&
-                lastY >= deleteButtonY &&
-                lastY <= deleteButtonY + xSize) {
-                
-                // Remove the text annotation
-                textAnnotations[currentPdfName][pageNum].splice(i, 1);
-                
-                // Clear and redraw everything
-                clearAnnotationCanvas();
-                redrawCanvas();
-                
-                // Save changes
-                saveAnnotations();
-                return;
-            }
-            
-            // Check if click is on the text itself (for moving)
-            // Only allow text selection in select mode
-            if (currentTool === 'select' && 
-                lastX >= textObj.x && 
-                lastX <= textObj.x + textWidth &&
-                lastY >= textObj.y &&
-                lastY <= textObj.y + textObj.size) {
-                
-                // Set this text as selected for moving
-                selectedTextId = textObj.id;
-                isMovingText = true;
-                return;
-            }
-        }
-    }
-    
-    // Hide text input when drawing starts
-    if (textInput.style.display === 'block') {
-        if (textInput.value.trim() !== '') {
-            commitText();
-        } else {
-            hideTextInput();
-        }
-    }
-    
-    // Only set isDrawing if we're not in select mode
-    if (currentTool !== 'select') {
-        isDrawing = true;
-    }
-    
-    // For text tool, show text input at click position
-    if (currentTool === 'text') {
-        isDrawing = false;
-        showTextInput(lastX, lastY);
-        return;
-    }
-}
-function draw(e) {
-    const rect = annotationCanvas.getBoundingClientRect();
-    const currentX = e.clientX - rect.left;
-    const currentY = e.clientY - rect.top;
-    
-    // Handle text movement
-    if (isMovingText && selectedTextId && currentTool === 'select') {
-        if (!textAnnotations[currentPdfName] || !textAnnotations[currentPdfName][pageNum]) return;
-        
-        // Find the selected text
-        const textObj = textAnnotations[currentPdfName][pageNum].find(t => t.id === selectedTextId);
-        if (textObj) {
-            // Calculate movement delta
-            const deltaX = currentX - lastX;
-            const deltaY = currentY - lastY;
-            
-            // Update text position
-            textObj.x += deltaX;
-            textObj.y += deltaY;
-            
-            // Update last position
-            lastX = currentX;
-            lastY = currentY;
-            
-            // Clear and redraw everything
-            clearAnnotationCanvas();
-            redrawCanvas();
-        }
-        return;
-    }
-    
-    // Handle regular drawing
-    if (!isDrawing) return;
-    
-    annotCtx.lineJoin = 'round';
-    annotCtx.lineCap = 'round';
-    
-    if (currentTool === 'draw') {
-        annotCtx.globalCompositeOperation = 'source-over';
-        annotCtx.strokeStyle = strokeColor;
-        annotCtx.lineWidth = lineWidth;
-    } else if (currentTool === 'eraser') {
-        annotCtx.globalCompositeOperation = 'destination-out';
-        annotCtx.lineWidth = lineWidth * 2; // Larger eraser
-    }
-    
-    annotCtx.beginPath();
-    annotCtx.moveTo(lastX, lastY);
-    annotCtx.lineTo(currentX, currentY);
-    annotCtx.stroke();
-    
-    lastX = currentX;
-    lastY = currentY;
-}
-function stopDrawing() {
-    if (isDrawing) {
-        isDrawing = false;
-        // Save the current state
-        savePageAnnotations();
-    }
-    
-    // Handle text movement completion
-    if (isMovingText) {
-        isMovingText = false;
-        selectedTextId = null;
-        // Save changes when text movement is complete
-        saveAnnotations();
-    }
-}
-
-// 5. Modify the redrawCanvas function (around line 737)
-function redrawCanvas() {
-    // Clear canvas
-    annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
-    
-    // First draw base annotations
-    if (annotations[currentPdfName] && annotations[currentPdfName][pageNum]) {
-        const annotationData = annotations[currentPdfName][pageNum];
-        const img = new Image();
-        img.onload = function() {
-            annotCtx.drawImage(img, 0, 0);
-            // After base annotations are drawn, draw text annotations
-            drawTextAnnotations();
-        };
-        img.src = annotationData;
-    } else {
-        // If no base annotations, just draw text annotations
-        drawTextAnnotations();
-    }
-}
-function drawTextAnnotations() {
-    if (!textAnnotations[currentPdfName] || !textAnnotations[currentPdfName][pageNum]) return;
-    
-    // Draw each text annotation
-    textAnnotations[currentPdfName][pageNum].forEach(textObj => {
-        // Set the correct font before measuring text
-        annotCtx.font = `${textObj.size}px Arial`;
-        renderTextAnnotation(textObj);
-    });
-}
-// Text handling functions
+// Function to show text input
 function showTextInput(x, y) {
-    // Store the actual position on the canvas for later drawing
     textPosition.x = x;
     textPosition.y = y;
     
-    // Calculate position for text input element in viewport coordinates
     const rect = annotationCanvas.getBoundingClientRect();
-    const viewportX = rect.left + x;
-    const viewportY = rect.top + y;
+    const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
     
-    // Position the text input directly at cursor position
+    const viewportX = rect.left + x + scrollLeft;
+    const viewportY = rect.top + y + scrollTop;
+    
     textInput.style.position = 'absolute';
     textInput.style.left = viewportX + 'px';
     textInput.style.top = viewportY + 'px';
@@ -810,68 +637,426 @@ function showTextInput(x, y) {
     textInput.style.fontSize = textSize + 'px';
     textInput.value = '';
     
-    // Focus on the text input
     setTimeout(() => {
         textInput.focus();
     }, 10);
 }
 
+// Function to hide text input
 function hideTextInput() {
     textInput.style.display = 'none';
     textInput.value = '';
 }
 
+// Function to commit text entry (continuing from where it was cut off)
 function commitText() {
     if (!textInput.value.trim()) {
         hideTextInput();
         return;
     }
     
-    const text = textInput.value;
+    initializeAnnotationsForCurrentDocument();
     
-    // Create a text annotation object
-    const textObj = {
+    // Check if we're editing an existing text
+    if (selectedTextId) {
+        const textIndex = documentAnnotations[currentPdfName][pageNum].texts.findIndex(t => t.id === selectedTextId);
+        
+        if (textIndex !== -1) {
+            // Update existing text
+            documentAnnotations[currentPdfName][pageNum].texts[textIndex].text = textInput.value;
+        } else {
+            // Add new text if somehow the ID is not found
+            addNewTextAnnotation();
+        }
+        
+        selectedTextId = null;
+    } else {
+        // Add new text
+        addNewTextAnnotation();
+    }
+    
+    hideTextInput();
+    renderAnnotations();
+    saveAnnotations();
+}
+
+// Helper function to add new text annotation
+function addNewTextAnnotation() {
+    const textAnnotation = {
         id: generateUniqueId(),
-        text: text,
+        text: textInput.value,
         x: textPosition.x,
         y: textPosition.y,
         size: textSize,
         color: strokeColor
     };
     
-    // Initialize if needed
-    if (!textAnnotations[currentPdfName]) {
-        textAnnotations[currentPdfName] = {};
-    }
-    if (!textAnnotations[currentPdfName][pageNum]) {
-        textAnnotations[currentPdfName][pageNum] = [];
-    }
-    
-    // Add to text annotations array
-    textAnnotations[currentPdfName][pageNum].push(textObj);
-    
-    // Draw the text on canvas
-    renderTextAnnotation(textObj);
-    
-    hideTextInput();
-    savePageAnnotations();
+    documentAnnotations[currentPdfName][pageNum].texts.push(textAnnotation);
 }
-// Add this new function to help manage canvas state
-function updateCanvasState() {
-    // Clear the canvas
-    clearAnnotationCanvas();
+
+// Set active tool
+function setActiveTool(tool) {
+    currentTool = tool;
     
-    // Redraw everything in the correct order
-    redrawCanvas();
+    // Update button appearances
+    document.getElementById('draw-tool').classList.remove('active');
+    document.getElementById('text-tool').classList.remove('active');
+    document.getElementById('eraser-tool').classList.remove('active');
+    document.getElementById('select-tool').classList.remove('active');
     
-    // Save the state
-    savePageAnnotations();
+    // Cancel any ongoing operations
+    isDrawing = false;
+    isMovingText = false;
+    
+    if (tool === 'draw') {
+        document.getElementById('draw-tool').classList.add('active');
+        annotationCanvas.style.cursor = 'crosshair';
+    } else if (tool === 'text') {
+        document.getElementById('text-tool').classList.add('active');
+        annotationCanvas.style.cursor = 'text';
+    } else if (tool === 'eraser') {
+        //document.getElementById('eraser-tool').classList.add('active');
+        //annotationCanvas.style.cursor = 'url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAC/SURBVDhP7ZLBDYMwDEWzVwbJHhmCuTJHJskOOXfuMARrdIn8ayUIuKGHSnnSlyDxbH+HgH/EdKKuaxtvyKJ4gs9GP81YwjCsgqIowrZt4VTuz3OxbVv4JfKmaRQWRXEJUmRZpjCO4xDwCCkiG1jXtcIwDEPAI6TIAM/zXGHf9yHgEVJkgOM4Kuz7PgQ8QorMtu/7KoT6vhdSSHYAUsQF67pWIZYQC2ZZJqSQ7ACkKOZ5rrCqqitt20bGsWf/Cdz8McwbZMJ4JupGFPoAAAAASUVORK5CYII="), auto`;
+    } else if (tool === 'select') {
+        document.getElementById('select-tool').classList.add('active');
+        annotationCanvas.style.cursor = 'default';
+    }
+    
+    // Hide text input if shown
+    if (textInput.style.display === 'block') {
+        if (textInput.value.trim() !== '') {
+            commitText();
+        } else {
+            hideTextInput();
+        }
+    }
 }
-// Set up event listeners
-document.addEventListener('DOMContentLoaded', function() {
+
+// Event handlers for drawing
+function startDrawing(e) {
+    if (!currentPdfName) return; // Add early return if no PDF is loaded
+    
+    e.preventDefault(); // Prevent default browser behavior
+    
+    const rect = annotationCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    lastX = x;
+    lastY = y;
+    
+    // Handle text input first
+    if (textInput.style.display === 'block') {
+        if (textInput.value.trim() !== '') {
+            commitText();
+        } else {
+            hideTextInput();
+        }
+    }
+    
+    if (currentTool === 'text') {
+        showTextInput(x, y);
+        return;
+    }
+    
+    // For draw or erase tool
+    if (currentTool === 'draw' || currentTool === 'eraser') {
+        isDrawing = true;
+        initializeAnnotationsForCurrentDocument();
+        
+        if (currentTool === 'draw') {
+            // Create new drawing path
+            const newDrawing = {
+                color: strokeColor,
+                lineWidth: lineWidth,
+                points: [{x, y}]
+            };
+            documentAnnotations[currentPdfName][pageNum].drawings.push(newDrawing);
+            
+            // Start the visual drawing
+            annotCtx.beginPath();
+            annotCtx.strokeStyle = strokeColor;
+            annotCtx.lineWidth = lineWidth;
+            annotCtx.lineJoin = 'round';
+            annotCtx.lineCap = 'round';
+            annotCtx.moveTo(x, y);
+        }
+    }
+}
+
+function draw(e) {
+    if (!isDrawing) return;
+    
+    e.preventDefault();
+    
+    const rect = annotationCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    if (currentTool === 'draw') {
+        // Get current drawing
+        const drawings = documentAnnotations[currentPdfName][pageNum].drawings;
+        const currentDrawing = drawings[drawings.length - 1];
+        
+        if (currentDrawing) {
+            // Add point to the path
+            currentDrawing.points.push({x, y});
+            
+            // Draw the line
+            annotCtx.beginPath();
+            annotCtx.strokeStyle = currentDrawing.color;
+            annotCtx.lineWidth = currentDrawing.lineWidth;
+            annotCtx.lineJoin = 'round';
+            annotCtx.lineCap = 'round';
+            annotCtx.moveTo(lastX, lastY);
+            annotCtx.lineTo(x, y);
+            annotCtx.stroke();
+        }
+    }
+    
+    lastX = x;
+    lastY = y;
+}
+
+function stopDrawing() {
+    if (isDrawing) {
+        isDrawing = false;
+        saveAnnotations();
+    }
+    
+    if (isMovingText) {
+        isMovingText = false;
+        selectedTextId = null;
+        saveAnnotations();
+    }
+}
+
+// Load annotations from localStorage
+function loadAnnotations() {
+    try {
+        const savedAnnotations = localStorage.getItem('pdfAnnotations');
+        
+        if (savedAnnotations) {
+            documentAnnotations = JSON.parse(savedAnnotations);
+            updateStatus('Annotations loaded from local storage.');
+        }
+    } catch (error) {
+        console.error('Error loading annotations:', error);
+        updateStatus('Error loading saved annotations: ' + error.message);
+    }
+}
+
+// Save annotations to localStorage
+function saveAnnotations() {
+    if (!currentPdfName) return;
+    
+    try {
+        localStorage.setItem('pdfAnnotations', JSON.stringify(documentAnnotations));
+    } catch (error) {
+        console.error('Error saving annotations:', error);
+        updateStatus('Error saving annotations: ' + error.message);
+    }
+}
+
+// Function to download PDF with annotations
+async function downloadAnnotatedPdf() {
+    if (!pdfBytes) {
+        updateStatus('No PDF loaded to download');
+        return;
+    }
+    
+    updateStatus('Preparing PDF download...');
+    
+    try {
+        // Load the PDF document with PDF-Lib
+        const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
+        const pages = pdfDoc.getPages();
+        
+        // Check if we have any annotations to add
+        let hasAnnotations = false;
+        for (const pageKey in documentAnnotations[currentPdfName]) {
+            const pageAnnots = documentAnnotations[currentPdfName][pageKey];
+            if (pageAnnots && (pageAnnots.texts.length > 0 || pageAnnots.drawings.length > 0)) {
+                hasAnnotations = true;
+                break;
+            }
+        }
+        
+        if (!hasAnnotations) {
+            updateStatus('No annotations to add to PDF');
+            return;
+        }
+        
+        // Process each page with annotations
+        for (const pageKey in documentAnnotations[currentPdfName]) {
+            const pageNum = parseInt(pageKey);
+            if (isNaN(pageNum) || pageNum <= 0 || pageNum > pages.length) continue;
+            
+            const pageAnnots = documentAnnotations[currentPdfName][pageKey];
+            if (!pageAnnots) continue;
+            
+            const page = pages[pageNum - 1]; // PDF-Lib uses 0-based indexing
+            
+            // Get page dimensions
+            const { width, height } = page.getSize();
+            
+            // Add text annotations
+            if (pageAnnots.texts && pageAnnots.texts.length > 0) {
+                for (const textAnnot of pageAnnots.texts) {
+                    // Convert color from hex to RGB
+                    const color = hexToRgb(textAnnot.color);
+                    
+                    page.drawText(textAnnot.text, {
+                        x: textAnnot.x,
+                        y: height - textAnnot.y - textAnnot.size, // Convert to PDF coordinates (origin at bottom-left)
+                        size: textAnnot.size,
+                        color: PDFLib.rgb(color.r / 255, color.g / 255, color.b / 255)
+                    });
+                }
+            }
+            
+            // Add drawing annotations
+            if (pageAnnots.drawings && pageAnnots.drawings.length > 0) {
+                for (const drawing of pageAnnots.drawings) {
+                    if (!drawing.points || drawing.points.length < 2) continue; // Skip single points
+                    
+                    // Convert color
+                    const color = hexToRgb(drawing.color);
+                    
+                    // Create an SVG path
+                    let svgPath = `M ${drawing.points[0].x} ${height - drawing.points[0].y} `;
+                    for (let i = 1; i < drawing.points.length; i++) {
+                        svgPath += `L ${drawing.points[i].x} ${height - drawing.points[i].y} `;
+                    }
+                    
+                    // Draw the SVG path
+                    page.drawSvgPath(svgPath, {
+                        color: PDFLib.rgb(color.r / 255, color.g / 255, color.b / 255),
+                        borderWidth: drawing.lineWidth,
+                        borderColor: PDFLib.rgb(color.r / 255, color.g / 255, color.b / 255)
+                    });
+                }
+            }
+        }
+        
+        // Save the PDF
+        const newPdfBytes = await pdfDoc.save();
+        
+        // Create a download link
+        const blob = new Blob([newPdfBytes], { type: 'application/pdf' });
+        const filename = currentPdfName.replace(/\.[^/.]+$/, '') + '_annotated.pdf';
+        
+        // Use the download.js library
+        download(blob, filename, 'application/pdf');
+        
+        updateStatus('PDF downloaded with annotations');
+    } catch (error) {
+        console.error('Error creating annotated PDF:', error);
+        updateStatus('Error creating annotated PDF: ' + error.message);
+    }
+}
+// Helper function to convert hex color to RGB (continuing from where it was cut off)
+function hexToRgb(hex) {
+    // Remove the # if present
+    hex = hex.replace(/^#/, '');
+    
+    // Parse r, g, b values
+    let bigint = parseInt(hex, 16);
+    let r = (bigint >> 16) & 255;
+    let g = (bigint >> 8) & 255;
+    let b = bigint & 255;
+    
+    return { r, g, b };
+}
+
+// Double-click handler for editing text
+function setupTextEditing() {
+    annotationCanvas.addEventListener('dblclick', function(e) {
+        if (currentTool !== 'select') return;
+        
+        const rect = annotationCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        // Check if double-clicked on text
+        if (documentAnnotations[currentPdfName] && 
+            documentAnnotations[currentPdfName][pageNum] &&
+            documentAnnotations[currentPdfName][pageNum].texts) {
+            
+            const texts = documentAnnotations[currentPdfName][pageNum].texts;
+            
+            for (const textObj of texts) {
+                annotCtx.font = `${textObj.size}px Arial`;
+                const textWidth = annotCtx.measureText(textObj.text).width;
+                
+                if (x >= textObj.x && x <= textObj.x + textWidth &&
+                    y >= textObj.y && y <= textObj.y + textObj.size) {
+                    
+                    // Set up text input for editing
+                    selectedTextId = textObj.id;
+                    textPosition.x = textObj.x;
+                    textPosition.y = textObj.y;
+                    
+                    const viewportX = rect.left + textObj.x;
+                    const viewportY = rect.top + textObj.y;
+                    
+                    textInput.style.position = 'absolute';
+                    textInput.style.left = viewportX + 'px';
+                    textInput.style.top = viewportY + 'px';
+                    textInput.style.display = 'block';
+                    textInput.style.color = textObj.color;
+                    textInput.style.fontSize = textObj.size + 'px';
+                    textInput.value = textObj.text;
+                    
+                    setTimeout(() => {
+                        textInput.focus();
+                        textInput.select();
+                    }, 10);
+                    
+                    return;
+                }
+            }
+        }
+    });
+}
+
+// Function to handle viewer reset
+function resetViewer() {
+    // Cancel any pending operations
+    if (pdfDoc) {
+        try {
+            pdfDoc.destroy();
+        } catch (error) {
+            console.error('Error destroying PDF document:', error);
+        }
+        pdfDoc = null;
+    }
+    
+    // Clear canvas
+    pdfCtx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+    annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+    
+    // Reset state
+    pageNum = 1;
+    pageRendering = false;
+    pageNumPending = null;
+    scale = 1.0;
+    updateZoomDisplay();
+    
+    // Reload current PDF if available
+    if (currentPdfUrl && currentPdfName) {
+        loadPDF(currentPdfUrl, currentPdfName);
+    }
+    
+    updateStatus('Viewer reset');
+}
+
+// Set up all event handlers
+function setupEventHandlers() {
     // PDF navigation buttons
     document.getElementById('prev').addEventListener('click', onPrevPage);
     document.getElementById('next').addEventListener('click', onNextPage);
+    document.getElementById('reset-viewer').addEventListener('click', resetViewer);
     
     // Zoom buttons
     document.getElementById('zoom-in').addEventListener('click', zoomIn);
@@ -881,44 +1066,16 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('draw-tool').addEventListener('click', () => setActiveTool('draw'));
     document.getElementById('text-tool').addEventListener('click', () => setActiveTool('text'));
     document.getElementById('eraser-tool').addEventListener('click', () => setActiveTool('eraser'));
-    document.getElementById('select-tool').addEventListener('click', () => setActiveTool('select')); // Pe3ed
-   // Update the clear button event listener (around line 886-889)
-document.getElementById('clear-annotations').addEventListener('click', () => {
-    // Only clear the current page annotations
-    clearCurrentPageAnnotations();
-    updateStatus('Cleared annotations from current page.');
-});
-
-// Add this new function to specifically clear annotations only for the current page
-function clearCurrentPageAnnotations() {
-    if (!currentPdfName) return;
-    
-    // Clear canvas visually
-    annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
-    
-    // Clear drawing annotations for current page only
-    if (annotations[currentPdfName]) {
-        // Set current page annotations to an empty canvas data URL
-        const emptyCanvas = document.createElement('canvas');
-        emptyCanvas.width = annotationCanvas.width;
-        emptyCanvas.height = annotationCanvas.height;
-        annotations[currentPdfName][pageNum] = emptyCanvas.toDataURL();
-    }
-    
-    // Clear text annotations for current page only
-    if (textAnnotations[currentPdfName]) {
-        textAnnotations[currentPdfName][pageNum] = [];
-    }
-    
-    // Save these changes
-    saveAnnotations();
-}
+    document.getElementById('select-tool').addEventListener('click', () => setActiveTool('select'));
+    document.getElementById('clear-annotations').addEventListener('click', clearCurrentPageAnnotations);
     document.getElementById('save-annotations').addEventListener('click', saveAnnotations);
+    document.getElementById('download-pdf').addEventListener('click', downloadAnnotatedPdf);
     
     // Color and line width controls
     document.getElementById('color-picker').addEventListener('input', function(e) {
         strokeColor = e.target.value;
     });
+    
     document.getElementById('line-width').addEventListener('change', function(e) {
         lineWidth = parseInt(e.target.value);
     });
@@ -936,13 +1093,69 @@ function clearCurrentPageAnnotations() {
             e.preventDefault();
             commitText();
         }
+        
+        // Allow escape to cancel
+        if (e.key === 'Escape') {
+            hideTextInput();
+            selectedTextId = null;
+        }
     });
     
+    // Set up text editing via double-click
+    setupTextEditing();
+    
+    // Handle touch events for mobile devices
+    annotationCanvas.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent('mousedown', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            annotationCanvas.dispatchEvent(mouseEvent);
+        }
+    });
+    
+    annotationCanvas.addEventListener('touchmove', function(e) {
+        e.preventDefault();
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent('mousemove', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            annotationCanvas.dispatchEvent(mouseEvent);
+        }
+    });
+    
+    annotationCanvas.addEventListener('touchend', function(e) {
+        e.preventDefault();
+        const mouseEvent = new MouseEvent('mouseup', {});
+        annotationCanvas.dispatchEvent(mouseEvent);
+    });
+}
+
+// Initialize the application
+function initApp() {
     // Set initial active tool
     setActiveTool('draw');
     
+    // Set up all event handlers
+    setupEventHandlers();
+    
     // Load files when page loads
     fetchGitHubFiles();
-});
+    
+    // Add error handling for worker
+    pdfjsLib.GlobalWorkerOptions.onError = function(error) {
+        console.error('PDF.js Worker Error:', error);
+        updateStatus('PDF Worker Error: ' + error.message);
+    };
+}
+
+// Start the application when DOM is fully loaded
+document.addEventListener('DOMContentLoaded', initApp);
 </script>
+</body>
 </html>
