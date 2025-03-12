@@ -633,22 +633,20 @@ function startDrawing(e) {
             // Check if click is on the delete button
             // Allow delete in ANY tool mode, not just select mode
             if (lastX >= textObj.x + textWidth + 2 && 
-                lastX <= textObj.x + textWidth + 2 + xSize &&
-                lastY >= textObj.y - 2 &&
-                lastY <= textObj.y - 2 + xSize) {
-                
-                console.log('Deleting text annotation:', textObj.text);
-                
-                // Remove this text annotation
-                textAnnotations[currentPdfName][pageNum].splice(i, 1);
-                
-                // Redraw canvas
-                redrawCanvas();
-                
-                // Save changes
-                saveAnnotations();
-                return;
-            }
+    lastX <= textObj.x + textWidth + 2 + xSize &&
+    lastY >= textObj.y - 2 &&
+    lastY <= textObj.y - 2 + xSize) {
+    
+    // Remove this text annotation
+    textAnnotations[currentPdfName][pageNum].splice(i, 1);
+    
+    // Clear the entire canvas and redraw everything
+    redrawCanvas();
+    
+    // Save changes
+    saveAnnotations();
+    return;
+}
             
             // Check if click is on the text itself (for moving)
             // Only allow text selection in select mode
@@ -697,24 +695,27 @@ function draw(e) {
     
     // Handle text movement
     if (isMovingText && selectedTextId && currentTool === 'select') {
-        if (!textAnnotations[currentPdfName] || !textAnnotations[currentPdfName][pageNum]) return;
+    if (!textAnnotations[currentPdfName] || !textAnnotations[currentPdfName][pageNum]) return;
+    
+    // Find the selected text
+    const textObj = textAnnotations[currentPdfName][pageNum].find(t => t.id === selectedTextId);
+    if (textObj) {
+        // Clear the entire canvas
+        annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
         
-        // Find the selected text
-        const textObj = textAnnotations[currentPdfName][pageNum].find(t => t.id === selectedTextId);
-        if (textObj) {
-            // Update text position
-            textObj.x = currentX - (lastX - textObj.x);
-            textObj.y = currentY - (lastY - textObj.y);
-            
-            // Update last position
-            lastX = currentX;
-            lastY = currentY;
-            
-            // Redraw canvas - this will use the updated position
-            redrawCanvas();
-        }
-        return;
+        // Update text position
+        textObj.x = currentX - (lastX - textObj.x);
+        textObj.y = currentY - (lastY - textObj.y);
+        
+        // Update last position
+        lastX = currentX;
+        lastY = currentY;
+        
+        // Redraw everything
+        redrawCanvas();
     }
+    return;
+}
     
     // Handle regular drawing
     if (!isDrawing) return;
