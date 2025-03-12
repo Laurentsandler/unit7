@@ -618,6 +618,7 @@ function generateUniqueId() {
     return Date.now().toString(36) + Math.random().toString(36).substring(2);
 }
 
+// Modify the delete button check in startDrawing function (around line 635)
 function startDrawing(e) {
     const rect = annotationCanvas.getBoundingClientRect();
     lastX = e.clientX - rect.left;
@@ -627,27 +628,34 @@ function startDrawing(e) {
     if (textAnnotations[currentPdfName] && textAnnotations[currentPdfName][pageNum]) {
         for (let i = 0; i < textAnnotations[currentPdfName][pageNum].length; i++) {
             const textObj = textAnnotations[currentPdfName][pageNum][i];
+            
+            // Calculate text width for the specific text object
+            annotCtx.font = `${textObj.size}px Arial`;
             const textWidth = annotCtx.measureText(textObj.text).width;
             const xSize = textObj.size * 0.8;
             
-            // Check if click is on the delete button
-            // Allow delete in ANY tool mode, not just select mode
-            if (lastX >= textObj.x + textWidth + 2 && 
-    lastX <= textObj.x + textWidth + 2 + xSize &&
-    lastY >= textObj.y - 2 &&
-    lastY <= textObj.y - 2 + xSize) {
-    
-    // Remove this text annotation
-    textAnnotations[currentPdfName][pageNum].splice(i, 1);
-    
-    // Clear the entire canvas and redraw everything
-    redrawCanvas();
-    
-    // Save changes
-    saveAnnotations();
-    return;
-}
+            // Improved hit detection for delete button
+            const deleteButtonX = textObj.x + textWidth + 2;
+            const deleteButtonY = textObj.y - 2;
             
+            if (lastX >= deleteButtonX && 
+                lastX <= deleteButtonX + xSize &&
+                lastY >= deleteButtonY &&
+                lastY <= deleteButtonY + xSize) {
+                
+                // Remove the text annotation
+                textAnnotations[currentPdfName][pageNum].splice(i, 1);
+                
+                // Clear and redraw everything
+                clearAnnotationCanvas();
+                redrawCanvas();
+                
+                // Save changes
+                saveAnnotations();
+                return;
+            }
+        }
+    }
             // Check if click is on the text itself (for moving)
             // Only allow text selection in select mode
             if (currentTool === 'select' && 
@@ -695,27 +703,29 @@ function draw(e) {
     
     // Handle text movement
     if (isMovingText && selectedTextId && currentTool === 'select') {
-    if (!textAnnotations[currentPdfName] || !textAnnotations[currentPdfName][pageNum]) return;
-    
-    // Find the selected text
-    const textObj = textAnnotations[currentPdfName][pageNum].find(t => t.id === selectedTextId);
-    if (textObj) {
-        // Clear the entire canvas
-        annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+        if (!textAnnotations[currentPdfName] || !textAnnotations[currentPdfName][pageNum]) return;
         
-        // Update text position
-        textObj.x = currentX - (lastX - textObj.x);
-        textObj.y = currentY - (lastY - textObj.y);
-        
-        // Update last position
-        lastX = currentX;
-        lastY = currentY;
-        
-        // Redraw everything
-        redrawCanvas();
+        // Find the selected text
+        const textObj = textAnnotations[currentPdfName][pageNum].find(t => t.id === selectedTextId);
+        if (textObj) {
+            // Calculate movement delta
+            const deltaX = currentX - lastX;
+            const deltaY = currentY - lastY;
+            
+            // Update text position
+            textObj.x += deltaX;
+            textObj.y += deltaY;
+            
+            // Update last position
+            lastX = currentX;
+            lastY = currentY;
+            
+            // Clear and redraw everything
+            clearAnnotationCanvas();
+            redrawCanvas();
+        }
+        return;
     }
-    return;
-}
     
     // Handle regular drawing
     if (!isDrawing) return;
@@ -763,14 +773,13 @@ function redrawCanvas() {
     // Clear canvas
     annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
     
-    // Redraw base annotations from image data
+    // First draw base annotations
     if (annotations[currentPdfName] && annotations[currentPdfName][pageNum]) {
         const annotationData = annotations[currentPdfName][pageNum];
         const img = new Image();
         img.onload = function() {
             annotCtx.drawImage(img, 0, 0);
-            
-            // Then draw text annotations on top
+            // After base annotations are drawn, draw text annotations
             drawTextAnnotations();
         };
         img.src = annotationData;
@@ -779,14 +788,15 @@ function redrawCanvas() {
         drawTextAnnotations();
     }
 }
-
-// 6. Add a new helper function for drawing text annotations
 function drawTextAnnotations() {
-    if (textAnnotations[currentPdfName] && textAnnotations[currentPdfName][pageNum]) {
-        for (const textObj of textAnnotations[currentPdfName][pageNum]) {
-            renderTextAnnotation(textObj);
-        }
-    }
+    if (!textAnnotations[currentPdfName] || !textAnnotations[currentPdfName][pageNum]) return;
+    
+    // Draw each text annotation
+    textAnnotations[currentPdfName][pageNum].forEach(textObj => {
+        // Set the correct font before measuring text
+        annotCtx.font = `${textObj.size}px Arial`;
+        renderTextAnnotation(textObj);
+    });
 }
 // Text handling functions
 function showTextInput(x, y) {
@@ -854,7 +864,17 @@ function commitText() {
     hideTextInput();
     savePageAnnotations();
 }
-
+// Add this new function to help manage canvas state
+function updateCanvasState() {
+    // Clear the canvas
+    clearAnnotationCanvas();
+    
+    // Redraw everything in the correct order
+    redrawCanvas();
+    
+    // Save the state
+    savePageAnnotations();
+}
 // Set up event listeners
 document.addEventListener('DOMContentLoaded', function() {
     // PDF navigation buttons
