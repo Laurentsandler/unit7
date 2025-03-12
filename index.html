@@ -194,6 +194,7 @@
                     <button id="clear-annotations" title="Clear All Annotations">Clear</button>
                     <button id="save-annotations" title="Save Annotations">Save</button>
                     <button id="download-pdf" title="Download PDF with Annotations">Download PDF</button>
+                    <button id="practice" title="Generate Practice Questions">Practice</button>
                 </div>
             </div>
             
@@ -1229,6 +1230,51 @@ function initApp() {
 
 // Start the application when DOM is fully loaded
 document.addEventListener('DOMContentLoaded', initApp);
+
+// Function to handle the API request and response
+async function generatePracticeQuestions() {
+    if (!currentPdfUrl) {
+        updateStatus('No PDF loaded to generate practice questions');
+        return;
+    }
+
+    updateStatus('Generating practice questions...');
+
+    try {
+        const response = await fetch('https://gemini.googleapis.com/v1/generateQuestions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer AIzaSyD2YtRIGrNWhS5TuWFqAsbbZvCKfNL2kJo`
+            },
+            body: JSON.stringify({
+                pdfUrl: currentPdfUrl,
+                prompt: 'Generate 10 practice questions based on the questions in the PDF'
+            }),
+            mode: 'cors'
+        });
+
+        if (!response.ok) {
+            throw new Error(`API response was not ok: ${response.status}`);
+        }
+
+        const data = await response.json();
+        redirectToPracticePage(data.questions);
+    } catch (error) {
+        console.error('Error generating practice questions:', error);
+        updateStatus('Error generating practice questions: ' + error.message);
+    }
+}
+
+// Function to redirect to the practice page with generated questions
+function redirectToPracticePage(questions) {
+    const practicePageUrl = 'practice.html';
+    const queryParams = new URLSearchParams({ questions: JSON.stringify(questions) });
+    window.location.href = `${practicePageUrl}?${queryParams.toString()}`;
+}
+
+// Add event listener for the "Practice" button
+document.getElementById('practice').addEventListener('click', generatePracticeQuestions);
 </script>
 </body>
 </html>
