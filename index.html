@@ -10,6 +10,13 @@
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://unpkg.com/downloadjs@1.4.7"></script>
     <script src="https://unpkg.com/@google-cloud/vertexai"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "@google/generative-ai": "https://esm.run/@google/generative-ai"
+        }
+      }
+    </script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -1242,7 +1249,7 @@ async function generatePracticeQuestions() {
     updateStatus('Generating practice questions...');
 
     try {
-        const questions = await createStreamChat(currentPdfUrl);
+        const questions = await run(currentPdfUrl);
         redirectToPracticePage(questions);
     } catch (error) {
         console.error('Error generating practice questions:', error);
@@ -1260,36 +1267,24 @@ function redirectToPracticePage(questions) {
 // Add event listener for the "Practice" button
 document.getElementById('practice').addEventListener('click', generatePracticeQuestions);
 
-// Function to create a stream chat using Vertex AI
-async function createStreamChat(pdfUrl) {
-    const { VertexAI } = require('@google-cloud/vertexai');
+<script type="module">
+  import { GoogleGenerativeAI } from "@google/generative-ai";
 
-    const projectId = 'PROJECT_ID';
-    const location = 'us-central1';
-    const model = 'gemini-1.5-flash-001';
+  // Fetch your API_KEY
+  const API_KEY = "AIzaSyDlnzhYoACjTrAjo_murZPYHnZ2wo1CZBk";
 
-    // Initialize Vertex with your Cloud project and location
-    const vertexAI = new VertexAI({ project: projectId, location: location });
+  // Access your API key (see "Set up your API key" above)
+  const genAI = new GoogleGenerativeAI(API_KEY);
+  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
-    // Instantiate the model
-    const generativeModel = vertexAI.getGenerativeModel({
-        model: model,
-    });
-
-    const chat = generativeModel.startChat({});
-    const chatInput1 = `Generate 10 practice questions based on the questions in the PDF at ${pdfUrl}`;
-
-    console.log(`User: ${chatInput1}`);
-
-    const result1 = await chat.sendMessageStream(chatInput1);
-    const questions = [];
-    for await (const item of result1.stream) {
-        questions.push(item.candidates[0].content.parts[0].text);
-    }
-
+  async function run(pdfUrl) {
+    const prompt = `Generate 10 practice questions based on the questions in the PDF at ${pdfUrl}`;
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text().replace(/\*/g, ''); // Remove \* characters
+    const questions = text.split('\n').filter(q => q.trim() !== '');
     return questions;
-}
+  }
 </script>
 </body>
 </html>
-<script async data-explicit-opt-in="true" data-deployment-id="dpl_Ae2ZJ2BYqK7yZJ5Hvo5VgCv6Gxfk" src="https://vercel.live/_next-live/feedback/feedback.js"></script>
