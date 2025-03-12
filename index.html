@@ -518,7 +518,6 @@ function savePageAnnotations() {
         textAnnotations[currentPdfName] = {};
     }
 }
-
 // Function to load page annotations from memory
 function loadPageAnnotations() {
     if (!currentPdfName) return;
@@ -566,8 +565,32 @@ function renderTextAnnotation(textObj) {
     annotCtx.fillText('×', textObj.x + textWidth + 3, textObj.y - 1);
 }
 
-
-
+function saveAnnotations() {
+    // First save current page annotations
+    savePageAnnotations();
+    
+    // Then save all to local storage
+    try {
+        localStorage.setItem('pdfAnnotations', JSON.stringify(annotations));
+        localStorage.setItem('pdfTextAnnotations', JSON.stringify(textAnnotations));
+        
+        // Add a visual confirmation that saving worked
+        const statusElement = document.getElementById('status-message');
+        statusElement.textContent = 'Annotations saved successfully!';
+        statusElement.style.color = '#05a167'; // Green color for success
+        
+        // Reset status message after a few seconds
+        setTimeout(() => {
+            if (statusElement.textContent === 'Annotations saved successfully!') {
+                statusElement.textContent = '';
+                statusElement.style.color = '#586069'; // Reset to original color
+            }
+        }, 3000);
+    } catch (error) {
+        updateStatus('Error saving annotations: ' + error.message);
+        console.error('Error saving annotations:', error);
+    }
+}
 // Function to load all annotations from local storage
 function loadAnnotations() {
     try {
@@ -923,4 +946,3 @@ function clearCurrentPageAnnotations() {
 });
 </script>
 </html>
-
