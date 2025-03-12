@@ -248,147 +248,6 @@ let isMovingText = false;
 
 // Enhanced annotation storage system
 let documentAnnotations = {};
-// AI Model integration for generating practice questions
-let model = null;
-
-// Function to initialize the AI model
-async function initializeModel() {
-    try {
-        // This would typically load a machine learning model
-        // For this basic implementation, we'll use a placeholder
-        model = {
-            name: "PDF Practice Questions Generator",
-            version: "1.0",
-            ready: true,
-            generate: function(text, options) {
-                // Generate questions based on PDF content
-                return [
-                    "What are the key concepts described in this document?",
-                    "Explain the main topic in your own words.",
-                    "How might you apply the information from this PDF?",
-                    "What questions do you still have after reading this material?",
-                    "Summarize the most important points from this document."
-                ];
-            }
-        };
-        
-        console.log("Practice questions model initialized successfully");
-        return true;
-    } catch (error) {
-        console.error("Failed to initialize model:", error);
-        return false;
-    }
-}
-
-// Function to generate practice questions from current PDF
-async function generatePracticeQuestions() {
-    if (!pdfDoc) {
-        updateStatus('No PDF loaded to generate questions from');
-        return;
-    }
-    
-    updateStatus('Generating practice questions...');
-    
-    try {
-        // Initialize the model if it hasn't been already
-        if (!model) {
-            const initialized = await initializeModel();
-            if (!initialized) {
-                throw new Error("Failed to initialize model");
-            }
-        }
-        
-        // Get the text content from the current page
-        const page = await pdfDoc.getPage(pageNum);
-        const textContent = await page.getTextContent();
-        const text = textContent.items.map(item => item.str).join(' ');
-        
-        if (text.trim().length === 0) {
-            updateStatus('Not enough text content to generate questions');
-            return;
-        }
-        
-        // Generate questions using the model
-        const questions = model.generate(text, {
-            count: 5,
-            difficulty: 'medium'
-        });
-        
-        // Display questions in an overlay
-        displayPracticeQuestions(questions);
-        
-    } catch (error) {
-        console.error('Error generating practice questions:', error);
-        updateStatus('Error generating practice questions: ' + error.message);
-    }
-}
-
-// Function to display practice questions
-function displayPracticeQuestions(questions) {
-    // Create overlay container
-    const overlay = document.createElement('div');
-    overlay.style.position = 'fixed';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100%';
-    overlay.style.height = '100%';
-    overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-    overlay.style.zIndex = '2000';
-    overlay.style.display = 'flex';
-    overlay.style.justifyContent = 'center';
-    overlay.style.alignItems = 'center';
-    
-    // Create questions container
-    const questionsContainer = document.createElement('div');
-    questionsContainer.style.backgroundColor = '#fff';
-    questionsContainer.style.padding = '20px';
-    questionsContainer.style.borderRadius = '5px';
-    questionsContainer.style.maxWidth = '600px';
-    questionsContainer.style.maxHeight = '80vh';
-    questionsContainer.style.overflow = 'auto';
-    questionsContainer.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
-    
-    // Add title
-    const title = document.createElement('h2');
-    title.textContent = 'Practice Questions';
-    title.style.marginBottom = '20px';
-    title.style.color = '#24292e';
-    questionsContainer.appendChild(title);
-    
-    // Add questions
-    const questionsList = document.createElement('ol');
-    questions.forEach(question => {
-        const li = document.createElement('li');
-        li.textContent = question;
-        li.style.marginBottom = '15px';
-        li.style.lineHeight = '1.5';
-        questionsList.appendChild(li);
-    });
-    questionsContainer.appendChild(questionsList);
-    
-    // Add close button
-    const closeButton = document.createElement('button');
-    closeButton.textContent = 'Close';
-    closeButton.style.padding = '8px 16px';
-    closeButton.style.background = '#0366d6';
-    closeButton.style.color = 'white';
-    closeButton.style.border = 'none';
-    closeButton.style.borderRadius = '3px';
-    closeButton.style.marginTop = '20px';
-    closeButton.style.cursor = 'pointer';
-    closeButton.onclick = () => {
-        document.body.removeChild(overlay);
-    };
-    questionsContainer.appendChild(closeButton);
-    
-    // Add container to overlay
-    overlay.appendChild(questionsContainer);
-    
-    // Add overlay to page
-    document.body.appendChild(overlay);
-    
-    updateStatus('Practice questions generated');
-}
 
 // Add these debug functions at the top of your script
 function debugLog(message) {
@@ -1277,7 +1136,7 @@ function setupEventHandlers() {
     document.getElementById('prev').addEventListener('click', onPrevPage);
     document.getElementById('next').addEventListener('click', onNextPage);
     document.getElementById('reset-viewer').addEventListener('click', resetViewer);
-    
+    document.getElementById('practice').addEventListener('click', generatePracticeQuestions);
     // Zoom buttons
     document.getElementById('zoom-in').addEventListener('click', zoomIn);
     document.getElementById('zoom-out').addEventListener('click', zoomOut);
@@ -1299,85 +1158,7 @@ function setupEventHandlers() {
     document.getElementById('line-width').addEventListener('change', function(e) {
         lineWidth = parseInt(e.target.value);
     });
-    // Add event listeners
-document.addEventListener('DOMContentLoaded', function() {
-    // Existing event listeners
-    document.getElementById('prev').addEventListener('click', onPrevPage);
-    document.getElementById('next').addEventListener('click', onNextPage);
-    document.getElementById('zoom-in').addEventListener('click', zoomIn);
-    document.getElementById('zoom-out').addEventListener('click', zoomOut);
-    document.getElementById('draw-tool').addEventListener('click', () => setActiveTool('draw'));
-    document.getElementById('text-tool').addEventListener('click', () => setActiveTool('text'));
-    document.getElementById('eraser-tool').addEventListener('click', () => setActiveTool('eraser'));
-    document.getElementById('select-tool').addEventListener('click', () => setActiveTool('select'));
-    document.getElementById('clear-annotations').addEventListener('click', clearCurrentPageAnnotations);
-    document.getElementById('save-annotations').addEventListener('click', saveAnnotations);
-    document.getElementById('download-pdf').addEventListener('click', downloadAnnotatedPdf);
     
-    // Add event listener for practice button
-    document.getElementById('practice').addEventListener('click', generatePracticeQuestions);
-    
-    // Canvas event listeners for drawing
-    annotationCanvas.addEventListener('mousedown', startDrawing);
-    annotationCanvas.addEventListener('mousemove', draw);
-    annotationCanvas.addEventListener('mouseup', stopDrawing);
-    annotationCanvas.addEventListener('mouseout', stopDrawing);
-    
-    // Touch support
-    annotationCanvas.addEventListener('touchstart', e => {
-        e.preventDefault();
-        const touch = e.touches[0];
-        const mouseEvent = new MouseEvent('mousedown', {
-            clientX: touch.clientX,
-            clientY: touch.clientY
-        });
-        annotationCanvas.dispatchEvent(mouseEvent);
-    });
-    
-    annotationCanvas.addEventListener('touchmove', e => {
-        e.preventDefault();
-        const touch = e.touches[0];
-        const mouseEvent = new MouseEvent('mousemove', {
-            clientX: touch.clientX,
-            clientY: touch.clientY
-        });
-        annotationCanvas.dispatchEvent(mouseEvent);
-    });
-    
-    annotationCanvas.addEventListener('touchend', e => {
-        const mouseEvent = new MouseEvent('mouseup', {});
-        annotationCanvas.dispatchEvent(mouseEvent);
-    });
-    
-    // Text input event listener
-    textInput.addEventListener('blur', commitText);
-    textInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            commitText();
-        }
-    });
-    
-    // Color picker event listener
-    document.getElementById('color-picker').addEventListener('input', function(e) {
-        strokeColor = e.target.value;
-    });
-    
-    // Line width selector
-    document.getElementById('line-width').addEventListener('change', function(e) {
-        lineWidth = parseInt(e.target.value);
-    });
-    
-    // Reset viewer button
-    document.getElementById('reset-viewer').addEventListener('click', function() {
-        scale = 1.0;
-        updateZoomDisplay();
-        queueRenderPage(pageNum);
-    });
-    
-    // Initialize
-    fetchGitHubFiles();
-});
     // Drawing event listeners
     annotationCanvas.addEventListener('mousedown', startDrawing);
     annotationCanvas.addEventListener('mousemove', draw);
@@ -1477,27 +1258,277 @@ function redirectToPracticePage(questions) {
     const queryParams = new URLSearchParams({ questions: JSON.stringify(questions) });
     window.location.href = `${practicePageUrl}?${queryParams.toString()}`;
 }
+// Google Gemini API integration for generating practice questions
+let model = null;
+const GEMINI_API_KEY = "AIzaSyCPUd25EGEK1s43iL5IOhELxfyLbUHpL6o"; // Replace with your actual API key
 
-// Add event listener for the "Practice" button
-document.getElementById('practice').addEventListener('click', generatePracticeQuestions);
-</script>
-<script type="importmap">
-    {
-        "imports": {
-            "@google/generative-ai": "https://esm.run/@google/generative-ai"
-        }
+// Function to initialize the Gemini model
+async function initializeModel() {
+    try {
+        // Simply verify that we can make API calls with the provided key
+        model = {
+            name: "Google Gemini",
+            version: "1.0",
+            ready: true,
+            apiKey: GEMINI_API_KEY
+        };
+        
+        console.log("Gemini API model initialized successfully");
+        return true;
+    } catch (error) {
+        console.error("Failed to initialize Gemini model:", error);
+        return false;
     }
-</script>
+}
 
-<script type="module">
-    import { GoogleGenerativeAI } from "@google/generative-ai";
+// Function to generate practice questions using Gemini API
+async function generatePracticeQuestions() {
+    if (!pdfDoc) {
+        updateStatus('No PDF loaded to generate questions from');
+        return;
+    }
+    
+    updateStatus('Generating practice questions with Google Gemini...');
+    
+    try {
+        // Initialize the model if it hasn't been already
+        if (!model) {
+            const initialized = await initializeModel();
+            if (!initialized) {
+                throw new Error("Failed to initialize Gemini model");
+            }
+        }
+        
+        // Get the text content from the current page
+        const page = await pdfDoc.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const text = textContent.items.map(item => item.str).join(' ');
+        
+        if (text.trim().length < 50) {
+            updateStatus('Not enough text content to generate questions');
+            return;
+        }
+        
+        // Extract additional context information
+        const contextInfo = {
+            fileName: currentPdfName,
+            pageNumber: pageNum,
+            totalPages: pdfDoc.numPages
+        };
+        
+        // Call Gemini API to generate questions
+        const questions = await callGeminiAPI(text, contextInfo);
+        
+        // Display questions in an overlay
+        displayPracticeQuestions(questions);
+        
+    } catch (error) {
+        console.error('Error generating practice questions:', error);
+        updateStatus('Error generating practice questions: ' + error.message);
+    }
+}
 
-    // Fetch your API_KEY
-    const API_KEY = "AIzaSyDlnzhYoACjTrAjo_murZPYHnZ2wo1CZBk";
+// Function to call the Google Gemini API
+async function callGeminiAPI(textContent, contextInfo) {
+    try {
+        // Prepare the prompt for Gemini
+        const prompt = `
+        I need to generate 5 practice questions based on the following content from a PDF document.
+        The questions should test understanding and critical thinking.
+        
+        Document name: ${contextInfo.fileName}
+        Page: ${contextInfo.pageNumber} of ${contextInfo.totalPages}
+        
+        Content:
+        ${textContent.substring(0, 8000)} // Limit content length to avoid token limits
+        
+        Please generate 5 practice questions in this format:
+        1. [Question 1]
+        2. [Question 2]
+        ...and so on.
+        
+        The questions should be diverse and cover different aspects of the content.
+        `;
+        
+        // Make the API call to Gemini
+        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': model.apiKey
+            },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{
+                        text: prompt
+                    }]
+                }],
+                generationConfig: {
+                    temperature: 0.7,
+                    maxOutputTokens: 1024,
+                }
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(`Gemini API error: ${errorData.error?.message || response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        // Extract the generated questions from the response
+        let generatedText = data.candidates[0].content.parts[0].text;
+        
+        // Parse the numbered questions into an array
+        const questionLines = generatedText.split('\n').filter(line => line.trim().length > 0);
+        const questions = [];
+        
+        for (const line of questionLines) {
+            const match = line.match(/^\d+\.\s+(.+)$/);
+            if (match) {
+                questions.push(match[1]);
+            }
+        }
+        
+        // If we couldn't parse questions properly, just use the full text split by numbers
+        if (questions.length === 0) {
+            const regex = /\d+\.\s+(.+?)(?=\d+\.|$)/gs;
+            let match;
+            while ((match = regex.exec(generatedText)) !== null) {
+                questions.push(match[1].trim());
+            }
+        }
+        
+        // If we still don't have questions, return the full response as a single question
+        if (questions.length === 0) {
+            return ["The AI generated the following response: " + generatedText];
+        }
+        
+        return questions;
+        
+    } catch (error) {
+        console.error("Error calling Gemini API:", error);
+        return [
+            "Failed to generate questions using Gemini AI.",
+            "Please check your API key and try again.",
+            "Error: " + error.message
+        ];
+    }
+}
 
-    // Access your API key (see "Set up your API key" above)
-    const genAI = new GoogleGenerativeAI(API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+// Function to display practice questions
+function displayPracticeQuestions(questions) {
+    // Create overlay container
+    const overlay = document.createElement('div');
+    overlay.style.position = 'fixed';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    overlay.style.zIndex = '2000';
+    overlay.style.display = 'flex';
+    overlay.style.justifyContent = 'center';
+    overlay.style.alignItems = 'center';
+    
+    // Create questions container
+    const questionsContainer = document.createElement('div');
+    questionsContainer.style.backgroundColor = '#fff';
+    questionsContainer.style.padding = '20px';
+    questionsContainer.style.borderRadius = '5px';
+    questionsContainer.style.maxWidth = '800px';
+    questionsContainer.style.width = '80%';
+    questionsContainer.style.maxHeight = '80vh';
+    questionsContainer.style.overflow = 'auto';
+    questionsContainer.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+    
+    // Add title
+    const title = document.createElement('h2');
+    title.textContent = 'Practice Questions';
+    title.style.marginBottom = '20px';
+    title.style.color = '#24292e';
+    questionsContainer.appendChild(title);
+    
+    // Add document info
+    const documentInfo = document.createElement('p');
+    documentInfo.textContent = `Generated from: ${currentPdfName} (Page ${pageNum} of ${pdfDoc.numPages})`;
+    documentInfo.style.fontSize = '14px';
+    documentInfo.style.color = '#586069';
+    documentInfo.style.marginBottom = '15px';
+    questionsContainer.appendChild(documentInfo);
+    
+    // Add questions
+    const questionsList = document.createElement('ol');
+    questions.forEach(question => {
+        const li = document.createElement('li');
+        li.textContent = question;
+        li.style.marginBottom = '15px';
+        li.style.lineHeight = '1.5';
+        questionsList.appendChild(li);
+        
+        // Add textarea for answers
+        const textarea = document.createElement('textarea');
+        textarea.placeholder = "Write your answer here...";
+        textarea.style.width = '100%';
+        textarea.style.padding = '8px';
+        textarea.style.marginTop = '5px';
+        textarea.style.marginBottom = '15px';
+        textarea.style.minHeight = '60px';
+        textarea.style.borderRadius = '3px';
+        textarea.style.border = '1px solid #ddd';
+        textarea.style.resize = 'vertical';
+        li.appendChild(textarea);
+    });
+    questionsContainer.appendChild(questionsList);
+    
+    // Add buttons container
+    const buttonsContainer = document.createElement('div');
+    buttonsContainer.style.display = 'flex';
+    buttonsContainer.style.justifyContent = 'space-between';
+    buttonsContainer.style.marginTop = '20px';
+    
+    // Add regenerate button
+    const regenerateButton = document.createElement('button');
+    regenerateButton.textContent = 'Regenerate Questions';
+    regenerateButton.style.padding = '8px 16px';
+    regenerateButton.style.background = '#28a745';
+    regenerateButton.style.color = 'white';
+    regenerateButton.style.border = 'none';
+    regenerateButton.style.borderRadius = '3px';
+    regenerateButton.style.cursor = 'pointer';
+    regenerateButton.onclick = () => {
+        document.body.removeChild(overlay);
+        setTimeout(() => {
+            generatePracticeQuestions();
+        }, 100);
+    };
+    buttonsContainer.appendChild(regenerateButton);
+    
+    // Add close button
+    const closeButton = document.createElement('button');
+    closeButton.textContent = 'Close';
+    closeButton.style.padding = '8px 16px';
+    closeButton.style.background = '#0366d6';
+    closeButton.style.color = 'white';
+    closeButton.style.border = 'none';
+    closeButton.style.borderRadius = '3px';
+    closeButton.style.cursor = 'pointer';
+    closeButton.onclick = () => {
+        document.body.removeChild(overlay);
+    };
+    buttonsContainer.appendChild(closeButton);
+    
+    questionsContainer.appendChild(buttonsContainer);
+    
+    // Add container to overlay
+    overlay.appendChild(questionsContainer);
+    
+    // Add overlay to page
+    document.body.appendChild(overlay);
+    
+    updateStatus('Practice questions generated using Google Gemini AI');
+}
 </script>
 </body>
 </html>
