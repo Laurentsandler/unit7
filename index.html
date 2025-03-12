@@ -493,23 +493,40 @@ function getAnnotationKey() {
     return `${currentPdfName}_page_${pageNum}`;
 }
 
-// Function to save page annotations to memory
 function savePageAnnotations() {
     if (!currentPdfName) return;
-    
-    const key = getAnnotationKey();
-    const annotationData = annotationCanvas.toDataURL();
     
     // Store this page's annotations
     if (!annotations[currentPdfName]) {
         annotations[currentPdfName] = {};
     }
-    annotations[currentPdfName][pageNum] = annotationData;
     
-    // Save text annotations alongside with the canvas
+    // Only save the drawing annotation data, not the text
+    // This prevents duplication of text annotations when dragging
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = annotationCanvas.width;
+    tempCanvas.height = annotationCanvas.height;
+    const tempCtx = tempCanvas.getContext('2d');
+    
+    // Draw only the base annotations without text
+    if (annotations[currentPdfName][pageNum]) {
+        const img = new Image();
+        img.onload = function() {
+            tempCtx.drawImage(img, 0, 0);
+            annotations[currentPdfName][pageNum] = tempCanvas.toDataURL();
+        };
+        img.src = annotations[currentPdfName][pageNum];
+    } else {
+        // If no annotations exist yet
+        annotations[currentPdfName][pageNum] = tempCanvas.toDataURL();
+    }
+    
+    // Save text annotations separately
     if (!textAnnotations[currentPdfName]) {
         textAnnotations[currentPdfName] = {};
     }
+    // We don't need to do anything else for text annotations as they
+    // are already updated in place by reference
 }
 
 // Function to load page annotations from memory
@@ -614,21 +631,28 @@ function startDrawing(e) {
             const xSize = textObj.size * 0.8;
             
             // Check if click is on the delete button
+            // Allow delete in ANY tool mode, not just select mode
             if (lastX >= textObj.x + textWidth + 2 && 
                 lastX <= textObj.x + textWidth + 2 + xSize &&
                 lastY >= textObj.y - 2 &&
                 lastY <= textObj.y - 2 + xSize) {
+                
+                console.log('Deleting text annotation:', textObj.text);
                 
                 // Remove this text annotation
                 textAnnotations[currentPdfName][pageNum].splice(i, 1);
                 
                 // Redraw canvas
                 redrawCanvas();
+                
+                // Save changes
+                saveAnnotations();
                 return;
             }
             
             // Check if click is on the text itself (for moving)
-            if (currentTool === 'select' && // Only allow text selection in select mode
+            // Only allow text selection in select mode
+            if (currentTool === 'select' && 
                 lastX >= textObj.x && 
                 lastX <= textObj.x + textWidth &&
                 lastY >= textObj.y &&
@@ -654,8 +678,6 @@ function startDrawing(e) {
     // Only set isDrawing if we're not in select mode
     if (currentTool !== 'select') {
         isDrawing = true;
-    } else {
-        isDrawing = false;
     }
     
     // For text tool, show text input at click position
@@ -667,13 +689,14 @@ function startDrawing(e) {
 }
 
 
+
 function draw(e) {
     const rect = annotationCanvas.getBoundingClientRect();
     const currentX = e.clientX - rect.left;
     const currentY = e.clientY - rect.top;
     
     // Handle text movement
-    if (isMovingText && selectedTextId) {
+    if (isMovingText && selectedTextId && currentTool === 'select') {
         if (!textAnnotations[currentPdfName] || !textAnnotations[currentPdfName][pageNum]) return;
         
         // Find the selected text
@@ -687,7 +710,7 @@ function draw(e) {
             lastX = currentX;
             lastY = currentY;
             
-            // Redraw canvas
+            // Redraw canvas - this will use the updated position
             redrawCanvas();
         }
         return;
@@ -707,6 +730,7 @@ function draw(e) {
         annotCtx.globalCompositeOperation = 'destination-out';
         annotCtx.lineWidth = lineWidth * 2; // Larger eraser
     }
+    // Remove the 'select' condition to prevent early return
     
     annotCtx.beginPath();
     annotCtx.moveTo(lastX, lastY);
@@ -717,7 +741,6 @@ function draw(e) {
     lastY = currentY;
 }
 
-// Replace the stopDrawing function (around line 722)
 function stopDrawing() {
     if (isDrawing) {
         isDrawing = false;
@@ -725,15 +748,16 @@ function stopDrawing() {
         savePageAnnotations();
     }
     
-    // Stop moving text
+    // Handle text movement completion
     if (isMovingText) {
         isMovingText = false;
         selectedTextId = null;
-        savePageAnnotations();
+        // Save changes when text movement is complete
+        saveAnnotations();
     }
 }
 
-// Function to redraw the canvas
+// 5. Modify the redrawCanvas function (around line 737)
 function redrawCanvas() {
     // Clear canvas
     annotCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
@@ -746,23 +770,23 @@ function redrawCanvas() {
             annotCtx.drawImage(img, 0, 0);
             
             // Then draw text annotations on top
-            if (textAnnotations[currentPdfName] && textAnnotations[currentPdfName][pageNum]) {
-                for (const textObj of textAnnotations[currentPdfName][pageNum]) {
-                    renderTextAnnotation(textObj);
-                }
-            }
+            drawTextAnnotations();
         };
         img.src = annotationData;
     } else {
         // If no base annotations, just draw text annotations
-        if (textAnnotations[currentPdfName] && textAnnotations[currentPdfName][pageNum]) {
-            for (const textObj of textAnnotations[currentPdfName][pageNum]) {
-                renderTextAnnotation(textObj);
-            }
-        }
+        drawTextAnnotations();
     }
 }
 
+// 6. Add a new helper function for drawing text annotations
+function drawTextAnnotations() {
+    if (textAnnotations[currentPdfName] && textAnnotations[currentPdfName][pageNum]) {
+        for (const textObj of textAnnotations[currentPdfName][pageNum]) {
+            renderTextAnnotation(textObj);
+        }
+    }
+}
 // Text handling functions
 function showTextInput(x, y) {
     // Store the actual position on the canvas for later drawing
