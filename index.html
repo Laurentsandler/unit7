@@ -601,7 +601,6 @@ function generateUniqueId() {
     return Date.now().toString(36) + Math.random().toString(36).substring(2);
 }
 
-// Handle mouse events for drawing
 function startDrawing(e) {
     const rect = annotationCanvas.getBoundingClientRect();
     lastX = e.clientX - rect.left;
@@ -629,7 +628,8 @@ function startDrawing(e) {
             }
             
             // Check if click is on the text itself (for moving)
-            if (lastX >= textObj.x && 
+            if (currentTool === 'select' && // Only allow text selection in select mode
+                lastX >= textObj.x && 
                 lastX <= textObj.x + textWidth &&
                 lastY >= textObj.y &&
                 lastY <= textObj.y + textObj.size) {
@@ -651,7 +651,12 @@ function startDrawing(e) {
         }
     }
     
-    isDrawing = true;
+    // Only set isDrawing if we're not in select mode
+    if (currentTool !== 'select') {
+        isDrawing = true;
+    } else {
+        isDrawing = false;
+    }
     
     // For text tool, show text input at click position
     if (currentTool === 'text') {
@@ -659,13 +664,8 @@ function startDrawing(e) {
         showTextInput(lastX, lastY);
         return;
     }
-    
-    // For select tool, handle text selection and movement
-    if (currentTool === 'select') { // Pf719
-        isDrawing = false;
-        return;
-    }
 }
+
 
 function draw(e) {
     const rect = annotationCanvas.getBoundingClientRect();
@@ -706,8 +706,6 @@ function draw(e) {
     } else if (currentTool === 'eraser') {
         annotCtx.globalCompositeOperation = 'destination-out';
         annotCtx.lineWidth = lineWidth * 2; // Larger eraser
-    } else if (currentTool === 'select') { // P9af6
-        return;
     }
     
     annotCtx.beginPath();
@@ -719,6 +717,7 @@ function draw(e) {
     lastY = currentY;
 }
 
+// Replace the stopDrawing function (around line 722)
 function stopDrawing() {
     if (isDrawing) {
         isDrawing = false;
@@ -731,11 +730,6 @@ function stopDrawing() {
         isMovingText = false;
         selectedTextId = null;
         savePageAnnotations();
-    }
-    
-    // For select tool, handle text movement
-    if (currentTool === 'select') { // Pbee5
-        return;
     }
 }
 
