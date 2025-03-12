@@ -248,6 +248,147 @@ let isMovingText = false;
 
 // Enhanced annotation storage system
 let documentAnnotations = {};
+// AI Model integration for generating practice questions
+let model = null;
+
+// Function to initialize the AI model
+async function initializeModel() {
+    try {
+        // This would typically load a machine learning model
+        // For this basic implementation, we'll use a placeholder
+        model = {
+            name: "PDF Practice Questions Generator",
+            version: "1.0",
+            ready: true,
+            generate: function(text, options) {
+                // Generate questions based on PDF content
+                return [
+                    "What are the key concepts described in this document?",
+                    "Explain the main topic in your own words.",
+                    "How might you apply the information from this PDF?",
+                    "What questions do you still have after reading this material?",
+                    "Summarize the most important points from this document."
+                ];
+            }
+        };
+        
+        console.log("Practice questions model initialized successfully");
+        return true;
+    } catch (error) {
+        console.error("Failed to initialize model:", error);
+        return false;
+    }
+}
+
+// Function to generate practice questions from current PDF
+async function generatePracticeQuestions() {
+    if (!pdfDoc) {
+        updateStatus('No PDF loaded to generate questions from');
+        return;
+    }
+    
+    updateStatus('Generating practice questions...');
+    
+    try {
+        // Initialize the model if it hasn't been already
+        if (!model) {
+            const initialized = await initializeModel();
+            if (!initialized) {
+                throw new Error("Failed to initialize model");
+            }
+        }
+        
+        // Get the text content from the current page
+        const page = await pdfDoc.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const text = textContent.items.map(item => item.str).join(' ');
+        
+        if (text.trim().length === 0) {
+            updateStatus('Not enough text content to generate questions');
+            return;
+        }
+        
+        // Generate questions using the model
+        const questions = model.generate(text, {
+            count: 5,
+            difficulty: 'medium'
+        });
+        
+        // Display questions in an overlay
+        displayPracticeQuestions(questions);
+        
+    } catch (error) {
+        console.error('Error generating practice questions:', error);
+        updateStatus('Error generating practice questions: ' + error.message);
+    }
+}
+
+// Function to display practice questions
+function displayPracticeQuestions(questions) {
+    // Create overlay container
+    const overlay = document.createElement('div');
+    overlay.style.position = 'fixed';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    overlay.style.zIndex = '2000';
+    overlay.style.display = 'flex';
+    overlay.style.justifyContent = 'center';
+    overlay.style.alignItems = 'center';
+    
+    // Create questions container
+    const questionsContainer = document.createElement('div');
+    questionsContainer.style.backgroundColor = '#fff';
+    questionsContainer.style.padding = '20px';
+    questionsContainer.style.borderRadius = '5px';
+    questionsContainer.style.maxWidth = '600px';
+    questionsContainer.style.maxHeight = '80vh';
+    questionsContainer.style.overflow = 'auto';
+    questionsContainer.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+    
+    // Add title
+    const title = document.createElement('h2');
+    title.textContent = 'Practice Questions';
+    title.style.marginBottom = '20px';
+    title.style.color = '#24292e';
+    questionsContainer.appendChild(title);
+    
+    // Add questions
+    const questionsList = document.createElement('ol');
+    questions.forEach(question => {
+        const li = document.createElement('li');
+        li.textContent = question;
+        li.style.marginBottom = '15px';
+        li.style.lineHeight = '1.5';
+        questionsList.appendChild(li);
+    });
+    questionsContainer.appendChild(questionsList);
+    
+    // Add close button
+    const closeButton = document.createElement('button');
+    closeButton.textContent = 'Close';
+    closeButton.style.padding = '8px 16px';
+    closeButton.style.background = '#0366d6';
+    closeButton.style.color = 'white';
+    closeButton.style.border = 'none';
+    closeButton.style.borderRadius = '3px';
+    closeButton.style.marginTop = '20px';
+    closeButton.style.cursor = 'pointer';
+    closeButton.onclick = () => {
+        document.body.removeChild(overlay);
+    };
+    questionsContainer.appendChild(closeButton);
+    
+    // Add container to overlay
+    overlay.appendChild(questionsContainer);
+    
+    // Add overlay to page
+    document.body.appendChild(overlay);
+    
+    updateStatus('Practice questions generated');
+}
 
 // Add these debug functions at the top of your script
 function debugLog(message) {
@@ -1158,7 +1299,85 @@ function setupEventHandlers() {
     document.getElementById('line-width').addEventListener('change', function(e) {
         lineWidth = parseInt(e.target.value);
     });
+    // Add event listeners
+document.addEventListener('DOMContentLoaded', function() {
+    // Existing event listeners
+    document.getElementById('prev').addEventListener('click', onPrevPage);
+    document.getElementById('next').addEventListener('click', onNextPage);
+    document.getElementById('zoom-in').addEventListener('click', zoomIn);
+    document.getElementById('zoom-out').addEventListener('click', zoomOut);
+    document.getElementById('draw-tool').addEventListener('click', () => setActiveTool('draw'));
+    document.getElementById('text-tool').addEventListener('click', () => setActiveTool('text'));
+    document.getElementById('eraser-tool').addEventListener('click', () => setActiveTool('eraser'));
+    document.getElementById('select-tool').addEventListener('click', () => setActiveTool('select'));
+    document.getElementById('clear-annotations').addEventListener('click', clearCurrentPageAnnotations);
+    document.getElementById('save-annotations').addEventListener('click', saveAnnotations);
+    document.getElementById('download-pdf').addEventListener('click', downloadAnnotatedPdf);
     
+    // Add event listener for practice button
+    document.getElementById('practice').addEventListener('click', generatePracticeQuestions);
+    
+    // Canvas event listeners for drawing
+    annotationCanvas.addEventListener('mousedown', startDrawing);
+    annotationCanvas.addEventListener('mousemove', draw);
+    annotationCanvas.addEventListener('mouseup', stopDrawing);
+    annotationCanvas.addEventListener('mouseout', stopDrawing);
+    
+    // Touch support
+    annotationCanvas.addEventListener('touchstart', e => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const mouseEvent = new MouseEvent('mousedown', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+        });
+        annotationCanvas.dispatchEvent(mouseEvent);
+    });
+    
+    annotationCanvas.addEventListener('touchmove', e => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const mouseEvent = new MouseEvent('mousemove', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+        });
+        annotationCanvas.dispatchEvent(mouseEvent);
+    });
+    
+    annotationCanvas.addEventListener('touchend', e => {
+        const mouseEvent = new MouseEvent('mouseup', {});
+        annotationCanvas.dispatchEvent(mouseEvent);
+    });
+    
+    // Text input event listener
+    textInput.addEventListener('blur', commitText);
+    textInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            commitText();
+        }
+    });
+    
+    // Color picker event listener
+    document.getElementById('color-picker').addEventListener('input', function(e) {
+        strokeColor = e.target.value;
+    });
+    
+    // Line width selector
+    document.getElementById('line-width').addEventListener('change', function(e) {
+        lineWidth = parseInt(e.target.value);
+    });
+    
+    // Reset viewer button
+    document.getElementById('reset-viewer').addEventListener('click', function() {
+        scale = 1.0;
+        updateZoomDisplay();
+        queueRenderPage(pageNum);
+    });
+    
+    // Initialize
+    fetchGitHubFiles();
+});
     // Drawing event listeners
     annotationCanvas.addEventListener('mousedown', startDrawing);
     annotationCanvas.addEventListener('mousemove', draw);
