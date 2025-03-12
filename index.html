@@ -52,22 +52,26 @@
             height: 100%;
             border: 1px solid #ddd;
             border-radius: 5px;
-            overflow: auto;
+            overflow: hidden;  /* Changed from auto to hidden */
         }
         #pdf-viewer {
             position: relative;
+            width: 100%;
+            height: 100%;
         }
         #pdf-canvas {
             position: absolute;
             left: 0;
             top: 0;
             z-index: 1;
+            touch-action: none;  /* Added */
         }
         #annotation-canvas {
             position: absolute;
             left: 0;
             top: 0;
             z-index: 2;
+            touch-action: none;  /* Added */
             cursor: crosshair;
         }
         .file-link {
@@ -132,15 +136,17 @@
             margin: 0 5px;
         }
         #text-input {
-            display: none;
             position: absolute;
+            display: none;
             border: 1px dashed #0366d6;
             background: transparent;
             font-family: Arial;
-            z-index: 3;
+            z-index: 1000;  /* Updated */
             padding: 5px;
             resize: none;
             overflow: hidden;
+            min-width: 100px;  /* Ensure minimum width */
+            min-height: 20px;  /* Ensure minimum height */
         }
         #status-message {
             font-style: italic;
@@ -241,6 +247,22 @@ let isMovingText = false;
 
 // Enhanced annotation storage system
 let documentAnnotations = {};
+
+// Add these debug functions at the top of your script
+function debugLog(message) {
+    console.log(`[DEBUG] ${message}`);
+}
+
+function getCanvasCoordinates(e, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    return {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
+    };
+}
 
 // Function to fetch GitHub files
 async function fetchGitHubFiles() {
@@ -587,6 +609,27 @@ function renderTextAnnotation(textObj) {
     annotCtx.font = `${xSize * 0.8}px Arial`;
     annotCtx.textBaseline = 'top';
     annotCtx.fillText('×', textObj.x + textWidth + 3, textObj.y - 1);
+    
+    // Add event listener for "x" click
+    annotationCanvas.addEventListener('click', function(e) {
+        const coords = getCanvasCoordinates(e, annotationCanvas);
+        if (coords.x >= textObj.x + textWidth + 2 && coords.x <= textObj.x + textWidth + 2 + xSize &&
+            coords.y >= textObj.y - 2 && coords.y <= textObj.y - 2 + xSize) {
+            deleteTextAnnotation(textObj.id);
+        }
+    });
+}
+
+// Function to delete text annotation
+function deleteTextAnnotation(textId) {
+    if (!currentPdfName || !documentAnnotations[currentPdfName] || !documentAnnotations[currentPdfName][pageNum]) return;
+    
+    const textIndex = documentAnnotations[currentPdfName][pageNum].texts.findIndex(t => t.id === textId);
+    if (textIndex !== -1) {
+        documentAnnotations[currentPdfName][pageNum].texts.splice(textIndex, 1);
+        renderAnnotations();
+        saveAnnotations();
+    }
 }
 
 // Function to clear annotation canvas
@@ -619,24 +662,34 @@ function generateUniqueId() {
 
 // Function to show text input
 function showTextInput(x, y) {
-    textPosition.x = x;
-    textPosition.y = y;
+    debugLog(`Showing text input at x=${x}, y=${y}`);
     
     const rect = annotationCanvas.getBoundingClientRect();
     const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
     const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
     
-    const viewportX = rect.left + x + scrollLeft;
-    const viewportY = rect.top + y + scrollTop;
+    // Store position for later use
+    textPosition = {x, y};
     
+    // Calculate absolute position
+    const absoluteX = rect.left + x + scrollLeft;
+    const absoluteY = rect.top + y + scrollTop;
+    
+    debugLog(`Absolute position: x=${absoluteX}, y=${absoluteY}`);
+    
+    // Position and show the text input
     textInput.style.position = 'absolute';
-    textInput.style.left = viewportX + 'px';
-    textInput.style.top = viewportY + 'px';
+    textInput.style.left = `${absoluteX}px`;
+    textInput.style.top = `${absoluteY}px`;
     textInput.style.display = 'block';
+    textInput.style.zIndex = '1000';  // Ensure it's above other elements
     textInput.style.color = strokeColor;
-    textInput.style.fontSize = textSize + 'px';
+    textInput.style.fontSize = `${textSize}px`;
     textInput.value = '';
+    textInput.style.minWidth = '100px';  // Ensure minimum width
+    textInput.style.minHeight = '20px';  // Ensure minimum height
     
+    // Focus the input
     setTimeout(() => {
         textInput.focus();
     }, 10);
@@ -715,8 +768,8 @@ function setActiveTool(tool) {
         document.getElementById('text-tool').classList.add('active');
         annotationCanvas.style.cursor = 'text';
     } else if (tool === 'eraser') {
-        //document.getElementById('eraser-tool').classList.add('active');
-        //annotationCanvas.style.cursor = 'url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAC/SURBVDhP7ZLBDYMwDEWzVwbJHhmCuTJHJskOOXfuMARrdIn8ayUIuKGHSnnSlyDxbH+HgH/EdKKuaxtvyKJ4gs9GP81YwjCsgqIowrZt4VTuz3OxbVv4JfKmaRQWRXEJUmRZpjCO4xDwCCkiG1jXtcIwDEPAI6TIAM/zXGHf9yHgEVJkgOM4Kuz7PgQ8QorMtu/7KoT6vhdSSHYAUsQF67pWIZYQC2ZZJqSQ7ACkKOZ5rrCqqitt20bGsWf/Cdz8McwbZMJ4JupGFPoAAAAASUVORK5CYII="), auto`;
+        document.getElementById('eraser-tool').classList.add('active');
+        annotationCanvas.style.cursor = 'url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAC/SURBVDhP7ZLBDYMwDEWzVwbJHhmCuTJHJskOOXfuMARrdIn8ayUIuKGHSnnSlyDxbH+HgH/EdKKuaxtvyKJ4gs9GP81YwjCsgqIowrZt4VTuz3OxbVv4JfKmaRQWRXEJUmRZpjCO4xDwCCkiG1jXtcIwDEPAI6TIAM/zXGHf9yHgEVJkgOM4Kuz7PgQ8QorMtu/7KoT6vhdSSHYAUsQF67pWIZYQC2ZZJqSQ7ACkKOZ5rrCqqitt20bGsWf/Cdz8McwbZMJ4JupGFPoAAAAASUVORK5CYII="), auto`;
     } else if (tool === 'select') {
         document.getElementById('select-tool').classList.add('active');
         annotationCanvas.style.cursor = 'default';
@@ -734,88 +787,113 @@ function setActiveTool(tool) {
 
 // Event handlers for drawing
 function startDrawing(e) {
-    if (!currentPdfName) return; // Add early return if no PDF is loaded
+    e.preventDefault();
+    debugLog(`Tool: ${currentTool}`);
     
-    e.preventDefault(); // Prevent default browser behavior
-    
-    const rect = annotationCanvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
-    lastX = x;
-    lastY = y;
-    
-    // Handle text input first
-    if (textInput.style.display === 'block') {
-        if (textInput.value.trim() !== '') {
-            commitText();
-        } else {
-            hideTextInput();
-        }
-    }
-    
-    if (currentTool === 'text') {
-        showTextInput(x, y);
+    if (!currentPdfName || !documentAnnotations[currentPdfName]) {
+        debugLog('No PDF loaded or annotations not initialized');
         return;
     }
     
-    // For draw or erase tool
-    if (currentTool === 'draw' || currentTool === 'eraser') {
+    const coords = getCanvasCoordinates(e, annotationCanvas);
+    debugLog(`Start coordinates: x=${coords.x}, y=${coords.y}`);
+    
+    // Initialize if needed
+    if (!documentAnnotations[currentPdfName][pageNum]) {
+        documentAnnotations[currentPdfName][pageNum] = {
+            drawings: [],
+            texts: []
+        };
+    }
+    
+    if (currentTool === 'text') {
+        debugLog('Showing text input');
+        showTextInput(coords.x, coords.y);
+        return;
+    }
+    
+    if (currentTool === 'draw') {
         isDrawing = true;
-        initializeAnnotationsForCurrentDocument();
+        lastX = coords.x;
+        lastY = coords.y;
         
-        if (currentTool === 'draw') {
-            // Create new drawing path
-            const newDrawing = {
-                color: strokeColor,
-                lineWidth: lineWidth,
-                points: [{x, y}]
-            };
-            documentAnnotations[currentPdfName][pageNum].drawings.push(newDrawing);
-            
-            // Start the visual drawing
-            annotCtx.beginPath();
-            annotCtx.strokeStyle = strokeColor;
-            annotCtx.lineWidth = lineWidth;
-            annotCtx.lineJoin = 'round';
-            annotCtx.lineCap = 'round';
-            annotCtx.moveTo(x, y);
-        }
+        debugLog('Starting new drawing path');
+        // Start new drawing path
+        documentAnnotations[currentPdfName][pageNum].drawings.push({
+            color: strokeColor,
+            lineWidth: lineWidth,
+            points: [{x: coords.x, y: coords.y}]
+        });
+        
+        // Set up canvas context
+        annotCtx.beginPath();
+        annotCtx.strokeStyle = strokeColor;
+        annotCtx.lineWidth = lineWidth;
+        annotCtx.lineJoin = 'round';
+        annotCtx.lineCap = 'round';
+        annotCtx.moveTo(coords.x, coords.y);
+    }
+    
+    if (currentTool === 'eraser') {
+        isDrawing = true;
+        lastX = coords.x;
+        lastY = coords.y;
+        
+        debugLog('Starting eraser path');
+        // Start new eraser path
+        documentAnnotations[currentPdfName][pageNum].drawings.push({
+            color: 'white',
+            lineWidth: lineWidth,
+            points: [{x: coords.x, y: coords.y}]
+        });
+        
+        // Set up canvas context
+        annotCtx.beginPath();
+        annotCtx.strokeStyle = 'white';
+        annotCtx.lineWidth = lineWidth;
+        annotCtx.lineJoin = 'round';
+        annotCtx.lineCap = 'round';
+        annotCtx.moveTo(coords.x, coords.y);
     }
 }
 
 function draw(e) {
-    if (!isDrawing) return;
-    
     e.preventDefault();
     
-    const rect = annotationCanvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
-    if (currentTool === 'draw') {
-        // Get current drawing
-        const drawings = documentAnnotations[currentPdfName][pageNum].drawings;
-        const currentDrawing = drawings[drawings.length - 1];
-        
-        if (currentDrawing) {
-            // Add point to the path
-            currentDrawing.points.push({x, y});
-            
-            // Draw the line
-            annotCtx.beginPath();
-            annotCtx.strokeStyle = currentDrawing.color;
-            annotCtx.lineWidth = currentDrawing.lineWidth;
-            annotCtx.lineJoin = 'round';
-            annotCtx.lineCap = 'round';
-            annotCtx.moveTo(lastX, lastY);
-            annotCtx.lineTo(x, y);
-            annotCtx.stroke();
-        }
+    if (!isDrawing || (currentTool !== 'draw' && currentTool !== 'eraser')) {
+        return;
     }
     
-    lastX = x;
-    lastY = y;
+    const coords = getCanvasCoordinates(e, annotationCanvas);
+    debugLog(`Drawing coordinates: x=${coords.x}, y=${coords.y}`);
+    
+    if (!documentAnnotations[currentPdfName] || 
+        !documentAnnotations[currentPdfName][pageNum] || 
+        !documentAnnotations[currentPdfName][pageNum].drawings.length) {
+        debugLog('No active drawing path');
+        return;
+    }
+    
+    // Get current drawing
+    const currentDrawing = documentAnnotations[currentPdfName][pageNum].drawings[
+        documentAnnotations[currentPdfName][pageNum].drawings.length - 1
+    ];
+    
+    // Add new point
+    currentDrawing.points.push({x: coords.x, y: coords.y});
+    
+    // Draw line
+    annotCtx.beginPath();
+    annotCtx.strokeStyle = currentDrawing.color;
+    annotCtx.lineWidth = currentDrawing.lineWidth;
+    annotCtx.lineJoin = 'round';
+    annotCtx.lineCap = 'round';
+    annotCtx.moveTo(lastX, lastY);
+    annotCtx.lineTo(coords.x, coords.y);
+    annotCtx.stroke();
+    
+    lastX = coords.x;
+    lastY = coords.y;
 }
 
 function stopDrawing() {
@@ -1051,6 +1129,28 @@ function resetViewer() {
     updateStatus('Viewer reset');
 }
 
+// Function to ensure proper canvas setup
+function setupCanvas() {
+    debugLog('Setting up canvas');
+    
+    // Make sure both canvases have the same dimensions as the container
+    const container = document.getElementById('pdf-container');
+    const containerRect = container.getBoundingClientRect();
+    
+    pdfCanvas.width = containerRect.width;
+    pdfCanvas.height = containerRect.height;
+    annotationCanvas.width = containerRect.width;
+    annotationCanvas.height = containerRect.height;
+    
+    // Clear any existing transformations
+    pdfCtx.setTransform(1, 0, 0, 1, 0, 0);
+    annotCtx.setTransform(1, 0, 0, 1, 0, 0);
+    
+    // Enable image smoothing
+    pdfCtx.imageSmoothingEnabled = true;
+    annotCtx.imageSmoothingEnabled = true;
+}
+
 // Set up all event handlers
 function setupEventHandlers() {
     // PDF navigation buttons
@@ -1113,9 +1213,9 @@ function setupEventHandlers() {
                 clientX: touch.clientX,
                 clientY: touch.clientY
             });
-            annotationCanvas.dispatchEvent(mouseEvent);
+            startDrawing(mouseEvent);
         }
-    });
+    }, { passive: false });
     
     annotationCanvas.addEventListener('touchmove', function(e) {
         e.preventDefault();
@@ -1125,26 +1225,21 @@ function setupEventHandlers() {
                 clientX: touch.clientX,
                 clientY: touch.clientY
             });
-            annotationCanvas.dispatchEvent(mouseEvent);
+            draw(mouseEvent);
         }
-    });
+    }, { passive: false });
     
-    annotationCanvas.addEventListener('touchend', function(e) {
-        e.preventDefault();
-        const mouseEvent = new MouseEvent('mouseup', {});
-        annotationCanvas.dispatchEvent(mouseEvent);
-    });
+    annotationCanvas.addEventListener('touchend', stopDrawing);
+    
+    // Update canvas setup when window is resized
+    window.addEventListener('resize', setupCanvas);
 }
 
 // Initialize the application
 function initApp() {
-    // Set initial active tool
+    setupCanvas();
     setActiveTool('draw');
-    
-    // Set up all event handlers
     setupEventHandlers();
-    
-    // Load files when page loads
     fetchGitHubFiles();
     
     // Add error handling for worker
