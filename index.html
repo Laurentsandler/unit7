@@ -501,27 +501,27 @@ function savePageAnnotations() {
         annotations[currentPdfName] = {};
     }
     
-    // Only save the drawing annotation data, not the text
-    // This prevents duplication of text annotations when dragging
+    // Create a temporary canvas for saving drawing annotations
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = annotationCanvas.width;
     tempCanvas.height = annotationCanvas.height;
     const tempCtx = tempCanvas.getContext('2d');
     
-    // Draw only the base annotations without text
+    // Get the current image data of drawing annotations only
     if (annotations[currentPdfName][pageNum]) {
         const img = new Image();
         img.onload = function() {
             tempCtx.drawImage(img, 0, 0);
+            // Store the drawing annotations only
             annotations[currentPdfName][pageNum] = tempCanvas.toDataURL();
         };
         img.src = annotations[currentPdfName][pageNum];
     } else {
-        // If no annotations exist yet
+        // If no annotations exist yet, store an empty canvas
         annotations[currentPdfName][pageNum] = tempCanvas.toDataURL();
     }
     
-    // Save text annotations separately
+    // Text annotations are already stored separately in the textAnnotations object
     if (!textAnnotations[currentPdfName]) {
         textAnnotations[currentPdfName] = {};
     }
@@ -618,7 +618,6 @@ function generateUniqueId() {
     return Date.now().toString(36) + Math.random().toString(36).substring(2);
 }
 
-// Modify the delete button check in startDrawing function (around line 635)
 function startDrawing(e) {
     const rect = annotationCanvas.getBoundingClientRect();
     lastX = e.clientX - rect.left;
@@ -654,8 +653,7 @@ function startDrawing(e) {
                 saveAnnotations();
                 return;
             }
-        }
-    }
+            
             // Check if click is on the text itself (for moving)
             // Only allow text selection in select mode
             if (currentTool === 'select' && 
@@ -693,9 +691,6 @@ function startDrawing(e) {
         return;
     }
 }
-
-
-
 function draw(e) {
     const rect = annotationCanvas.getBoundingClientRect();
     const currentX = e.clientX - rect.left;
@@ -741,7 +736,6 @@ function draw(e) {
         annotCtx.globalCompositeOperation = 'destination-out';
         annotCtx.lineWidth = lineWidth * 2; // Larger eraser
     }
-    // Remove the 'select' condition to prevent early return
     
     annotCtx.beginPath();
     annotCtx.moveTo(lastX, lastY);
@@ -751,7 +745,6 @@ function draw(e) {
     lastX = currentX;
     lastY = currentY;
 }
-
 function stopDrawing() {
     if (isDrawing) {
         isDrawing = false;
