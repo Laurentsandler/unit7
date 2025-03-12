@@ -173,6 +173,7 @@
                     <button id="draw-tool" title="Draw">Draw</button>
                     <button id="text-tool" title="Add Text">Text</button>
                     <button id="eraser-tool" title="Eraser">Eraser</button>
+                    <button id="select-tool" title="Select">Select</button> <!-- Pe3ed -->
                     <input type="color" id="color-picker" value="#FF0000" title="Color">
                     <select id="line-width" title="Line Width">
                         <option value="1">Thin</option>
@@ -220,7 +221,7 @@ let pdfContainer = document.getElementById('pdf-container');
 let isDrawing = false;
 let lastX = 0;
 let lastY = 0;
-let currentTool = 'draw'; // 'draw', 'text', 'eraser', 'move'
+let currentTool = 'draw'; // 'draw', 'text', 'eraser', 'move', 'select'
 let lineWidth = 3;
 let strokeColor = '#FF0000';
 let textInput = document.getElementById('text-input');
@@ -461,6 +462,7 @@ function setActiveTool(tool) {
     document.getElementById('draw-tool').classList.remove('active');
     document.getElementById('text-tool').classList.remove('active');
     document.getElementById('eraser-tool').classList.remove('active');
+    document.getElementById('select-tool').classList.remove('active'); // P2e48
     
     if (tool === 'draw') {
         document.getElementById('draw-tool').classList.add('active');
@@ -471,6 +473,9 @@ function setActiveTool(tool) {
     } else if (tool === 'eraser') {
         document.getElementById('eraser-tool').classList.add('active');
         annotationCanvas.style.cursor = 'url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAAH6ji2bAAAABGdBTUEAALGPC/xhBQAAAnNJREFUOBGdVL1rU1EcPfdGQytYinQoVoRCi4PJoEMHHUTcFBcFB8HNf8DN[...]';
+    } else if (tool === 'select') { // P2e48
+        document.getElementById('select-tool').classList.add('active');
+        annotationCanvas.style.cursor = 'pointer';
     }
 }
 
@@ -610,7 +615,6 @@ function startDrawing(e) {
             const xSize = textObj.size * 0.8;
             
             // Check if click is on the delete button
-                        // Check if click is on the delete button
             if (lastX >= textObj.x + textWidth + 2 && 
                 lastX <= textObj.x + textWidth + 2 + xSize &&
                 lastY >= textObj.y - 2 &&
@@ -655,6 +659,12 @@ function startDrawing(e) {
         showTextInput(lastX, lastY);
         return;
     }
+    
+    // For select tool, handle text selection and movement
+    if (currentTool === 'select') { // Pf719
+        isDrawing = false;
+        return;
+    }
 }
 
 function draw(e) {
@@ -696,6 +706,8 @@ function draw(e) {
     } else if (currentTool === 'eraser') {
         annotCtx.globalCompositeOperation = 'destination-out';
         annotCtx.lineWidth = lineWidth * 2; // Larger eraser
+    } else if (currentTool === 'select') { // P9af6
+        return;
     }
     
     annotCtx.beginPath();
@@ -719,6 +731,11 @@ function stopDrawing() {
         isMovingText = false;
         selectedTextId = null;
         savePageAnnotations();
+    }
+    
+    // For select tool, handle text movement
+    if (currentTool === 'select') { // Pbee5
+        return;
     }
 }
 
@@ -833,6 +850,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('draw-tool').addEventListener('click', () => setActiveTool('draw'));
     document.getElementById('text-tool').addEventListener('click', () => setActiveTool('text'));
     document.getElementById('eraser-tool').addEventListener('click', () => setActiveTool('eraser'));
+    document.getElementById('select-tool').addEventListener('click', () => setActiveTool('select')); // Pe3ed
     document.getElementById('clear-annotations').addEventListener('click', () => {
         clearAnnotationCanvas();
         savePageAnnotations();
