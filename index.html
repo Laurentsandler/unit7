@@ -1250,7 +1250,8 @@ async function generatePracticeQuestions() {
             body: JSON.stringify({
                 pdfUrl: currentPdfUrl,
                 prompt: 'Generate 10 practice questions based on the questions in the PDF'
-            })
+            }),
+            mode: 'cors'
         });
 
         if (!response.ok) {
