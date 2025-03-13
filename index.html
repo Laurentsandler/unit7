@@ -1832,6 +1832,14 @@ function addCheckButton() {
 // Function to check/grade the assignment - uses the same pattern as practice questions
 async function checkAssignment() {
     try {
+        // Initialize the model if it hasn't been already
+        if (!model) {
+            const initialized = await initializeModel();
+            if (!initialized) {
+                throw new Error("Failed to initialize Gemini model");
+            }
+        }
+        
         // Show loading state
         updateStatus('Analyzing assignment...');
         document.getElementById('check-assignment').disabled = true;
