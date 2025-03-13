@@ -1846,24 +1846,37 @@ async function checkAssignment() {
         // Get the current annotations
         const annotations = documentAnnotations[currentPdfName][pageNum] || {};
         
-        // Create a temporary PDF with embedded annotations
-        const pdfWithAnswers = await embedAnnotationsInPDF(pdfDoc); // Pass the global pdfDoc as parameter
+        // Get PDF with embedded annotations
+        const pdfWithAnswers = await embedAnnotationsInPDF(pdfDoc);
         
-        // Convert PDF to base64 for sending
+        // Convert PDF to base64
         const pdfBase64 = await pdfWithAnswers.saveAsBase64();
+        
+        // Format annotations for clear presentation
+        const formattedAnnotations = formatAnnotations(annotations);
         
         const prompt = `
         I need you to grade an assignment from ${currentPdfName}, page ${pageNum} of ${pdfDoc.numPages}.
         
-        The PDF contains both questions and student answers (shown as annotations or text overlays).
-        Please analyze the answers in context of their questions and provide:
-        1. Overall feedback on the assignment
-        2. Feedback for each question based on the annotations/answers provided
-        3. A correctness score (0.0-1.0) for each answer
-        4. Suggestions for improvement
-
-        Base64 PDF Content:
+        IMPORTANT GRADING RULES:
+        - Blank or missing answers should receive a score of 0
+        - Each answer must be evaluated based on its completeness and correctness
+        - Scores should range from 0.0 (completely wrong or blank) to 1.0 (completely correct)
+        - Partial credit can be given for partially correct answers
+        
+        Student Annotations (Answers):
+        ${formattedAnnotations}
+        
+        PDF Content (Base64):
         ${pdfBase64}
+        
+        Please provide a detailed analysis with:
+        1. Overall feedback on the assignment
+        2. For each question:
+           - Score (0.0 to 1.0)
+           - Whether the answer was blank/missing
+           - Specific feedback on the answer
+           - Suggestions for improvement
         
         Format your response as a JSON object with this structure:
         {
@@ -1871,49 +1884,40 @@ async function checkAssignment() {
             "questionFeedback": [
                 {
                     "questionNumber": number,
-                    "answer": "the student's annotation",
+                    "isBlank": boolean,
+                    "answer": "the student's annotation (or 'No answer provided' if blank)",
                     "correctness": number between 0 and 1,
                     "feedback": "string with specific feedback",
                     "suggestions": "string with improvement suggestions"
                 }
-            ]
+            ],
+            "totalScore": number between 0 and 1
         }
         `;
         
         const response = await evaluateAnswer("Assignment Grading", prompt, "");
         
-        // Parse the response to get structured feedback
+        // Parse and validate the response
         let analysisResults;
         try {
             const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 analysisResults = JSON.parse(jsonMatch[0]);
+                // Validate scores for blank answers
+                analysisResults.questionFeedback = analysisResults.questionFeedback.map(feedback => {
+                    if (feedback.isBlank || !feedback.answer || feedback.answer.trim() === '') {
+                        feedback.correctness = 0;
+                        feedback.feedback = "No answer provided";
+                        feedback.suggestions = "Please provide an answer to receive credit";
+                    }
+                    return feedback;
+                });
             } else {
-                analysisResults = {
-                    overallFeedback: "The AI provided feedback but not in JSON format.",
-                    questionFeedback: [{
-                        questionNumber: 1,
-                        answer: "See full response",
-                        correctness: 0.5,
-                        feedback: "AI feedback wasn't properly structured.",
-                        suggestions: "Please see the full AI response below.",
-                        fullResponse: response
-                    }]
-                };
+                analysisResults = createDefaultResponse("AI response was not in correct format");
             }
         } catch (parseError) {
             console.error("Error parsing AI response:", parseError);
-            analysisResults = {
-                overallFeedback: "The AI response couldn't be parsed.",
-                questionFeedback: [{
-                    questionNumber: 1,
-                    answer: "Error occurred",
-                    correctness: 0.5,
-                    feedback: "Error processing AI feedback.",
-                    suggestions: "Please try again or check the raw response below.",
-                    fullResponse: response
-                }]
-            };
+            analysisResults = createDefaultResponse("Error processing AI response");
         }
         
         // Display the results
@@ -1930,39 +1934,69 @@ async function checkAssignment() {
     }
 }
 
-async function embedAnnotationsInPDF(originalPdfDoc) {
-    // Get the PDF data from the original document
-    const pdfBytes = await originalPdfDoc.getData();
+function formatAnnotations(annotations) {
+    if (!annotations.texts || annotations.texts.length === 0) {
+        return "NO ANSWERS PROVIDED";
+    }
     
-    // Create a new PDF document
+    return annotations.texts
+        .sort((a, b) => a.y - b.y)
+        .map((annot, index) => {
+            const text = annot.text.trim();
+            return `Answer ${index + 1}: ${text || '[BLANK]'} (Position: ${Math.round(annot.y)})`;
+        })
+        .join('\n');
+}
+
+function createDefaultResponse(errorMessage) {
+    return {
+        overallFeedback: errorMessage,
+        questionFeedback: [{
+            questionNumber: 1,
+            isBlank: true,
+            answer: "Error processing response",
+            correctness: 0,
+            feedback: errorMessage,
+            suggestions: "Please try again"
+        }],
+        totalScore: 0
+    };
+}
+
+async function embedAnnotationsInPDF(originalPdfDoc) {
+    const pdfBytes = await originalPdfDoc.getData();
     const newPdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
     const pages = newPdfDoc.getPages();
     const page = pages[pageNum - 1];
     const { width, height } = page.getSize();
     
-    // Get current annotations
     const pageAnnots = documentAnnotations[currentPdfName][pageNum];
     
     if (pageAnnots && pageAnnots.texts) {
+        // Sort annotations by vertical position
+        const sortedAnnots = [...pageAnnots.texts].sort((a, b) => a.y - b.y);
+        
         // Add text annotations to the PDF
-        for (const textAnnot of pageAnnots.texts) {
-            // Convert color from hex to RGB
+        for (const textAnnot of sortedAnnots) {
+            if (!textAnnot.text || textAnnot.text.trim() === '') {
+                continue; // Skip blank annotations
+            }
+            
             const color = hexToRgb(textAnnot.color);
             
-            // Add the text to the PDF
-            page.drawText(textAnnot.text, {
+            // Add the text with a label
+            const annotText = `Answer: ${textAnnot.text}`;
+            page.drawText(annotText, {
                 x: textAnnot.x,
-                y: height - textAnnot.y - textAnnot.size, // Convert to PDF coordinates
+                y: height - textAnnot.y - textAnnot.size,
                 size: textAnnot.size,
                 color: PDFLib.rgb(color.r / 255, color.g / 255, color.b / 255)
             });
         }
     }
     
-    // Return the modified PDF
     return newPdfDoc;
 }
-
 // Helper function to convert hex color to RGB
 function hexToRgb(hex) {
     hex = hex.replace('#', '');
