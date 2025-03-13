@@ -1847,7 +1847,7 @@ async function checkAssignment() {
         const annotations = documentAnnotations[currentPdfName][pageNum] || {};
         
         // Create a temporary PDF with embedded annotations
-        const pdfWithAnswers = await embedAnnotationsInPDF();
+        const pdfWithAnswers = await embedAnnotationsInPDF(pdfDoc); // Pass the global pdfDoc as parameter
         
         // Convert PDF to base64 for sending
         const pdfBase64 = await pdfWithAnswers.saveAsBase64();
@@ -1930,11 +1930,13 @@ async function checkAssignment() {
     }
 }
 
-async function embedAnnotationsInPDF() {
-    // Load the PDF document
-    const pdfBytes = await pdfDoc.getData();
-    const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
-    const pages = pdfDoc.getPages();
+async function embedAnnotationsInPDF(originalPdfDoc) {
+    // Get the PDF data from the original document
+    const pdfBytes = await originalPdfDoc.getData();
+    
+    // Create a new PDF document
+    const newPdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
+    const pages = newPdfDoc.getPages();
     const page = pages[pageNum - 1];
     const { width, height } = page.getSize();
     
@@ -1957,8 +1959,8 @@ async function embedAnnotationsInPDF() {
         }
     }
     
-    // Save the modified PDF
-    return pdfDoc;
+    // Return the modified PDF
+    return newPdfDoc;
 }
 
 // Helper function to convert hex color to RGB
