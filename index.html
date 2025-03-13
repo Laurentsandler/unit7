@@ -1832,7 +1832,6 @@ function addCheckButton() {
 // Function to check/grade the assignment - uses the same pattern as practice questions
 async function checkAssignment() {
     try {
-        // Initialize model if not already done
         if (!model) {
             const initialized = await initializeModel();
             if (!initialized) {
@@ -1844,86 +1843,27 @@ async function checkAssignment() {
         updateStatus('Analyzing assignment...');
         document.getElementById('check-assignment').disabled = true;
         
-        // Extract text content from current PDF page
-        const page = await pdfDoc.getPage(pageNum);
-        const textContent = await page.getTextContent();
-        
-        // Process the PDF content to extract questions
-        const questions = [];
-        let currentQuestion = '';
-        let isCollectingQuestion = false;
-        
-        // Process each text item from the PDF
-        textContent.items.forEach(item => {
-            const text = item.str.trim();
-            
-            // Look for question markers (numbers followed by period or parenthesis)
-            if (text.match(/^\d+[\.\)]/) || text.match(/^[A-Z][\.\)]/)) {
-                if (currentQuestion) {
-                    questions.push({
-                        text: currentQuestion.trim(),
-                        position: item.transform[5] // y-coordinate
-                    });
-                }
-                isCollectingQuestion = true;
-                currentQuestion = text;
-            } else if (isCollectingQuestion) {
-                currentQuestion += ' ' + text;
-            }
-        });
-        
-        // Add the last question if exists
-        if (currentQuestion) {
-            questions.push({
-                text: currentQuestion.trim(),
-                position: textContent.items[textContent.items.length - 1].transform[5]
-            });
-        }
-        
-        // Get annotations (student answers)
+        // Get the current annotations
         const annotations = documentAnnotations[currentPdfName][pageNum] || {};
-        const annotationArray = annotations.texts || [];
         
-        // Sort questions and annotations by their y-position
-        questions.sort((a, b) => b.position - a.position);
-        annotationArray.sort((a, b) => b.y - a.y);
+        // Create a temporary PDF with embedded annotations
+        const pdfWithAnswers = await embedAnnotationsInPDF();
         
-        // Match questions with closest annotations
-        const questionAnswerPairs = questions.map(question => {
-            // Find closest annotation
-            let closest = null;
-            let minDistance = Infinity;
-            
-            annotationArray.forEach(annotation => {
-                const distance = Math.abs(annotation.y - question.position);
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    closest = annotation;
-                }
-            });
-            
-            return {
-                question: question.text,
-                answer: closest ? closest.text : '',
-                position: question.position
-            };
-        });
+        // Convert PDF to base64 for sending
+        const pdfBase64 = await pdfWithAnswers.saveAsBase64();
         
-        // Create the prompt for grading
         const prompt = `
         I need you to grade an assignment from ${currentPdfName}, page ${pageNum} of ${pdfDoc.numPages}.
         
-        Questions and Student Answers:
-        ${questionAnswerPairs.map((pair, idx) => `
-        Question ${idx + 1}: ${pair.question}
-        Student Answer: ${pair.answer}
-        `).join('\n')}
-        
-        Please analyze these answers and provide:
+        The PDF contains both questions and student answers (shown as annotations or text overlays).
+        Please analyze the answers in context of their questions and provide:
         1. Overall feedback on the assignment
-        2. Feedback for each question, comparing the student's answer to the question asked
-        3. A correctness score (0.0-1.0) for each question
+        2. Feedback for each question based on the annotations/answers provided
+        3. A correctness score (0.0-1.0) for each answer
         4. Suggestions for improvement
+
+        Base64 PDF Content:
+        ${pdfBase64}
         
         Format your response as a JSON object with this structure:
         {
@@ -1931,56 +1871,48 @@ async function checkAssignment() {
             "questionFeedback": [
                 {
                     "questionNumber": number,
-                    "questionText": "the actual question from the PDF",
-                    "studentAnswer": "the student's annotation",
+                    "answer": "the student's annotation",
                     "correctness": number between 0 and 1,
                     "feedback": "string with specific feedback",
                     "suggestions": "string with improvement suggestions"
                 }
             ]
         }
-
-        also be "chill" when grading, simple answers are completely ok.
         `;
         
-        // Use evaluateAnswer function to get the grading
         const response = await evaluateAnswer("Assignment Grading", prompt, "");
         
         // Parse the response to get structured feedback
         let analysisResults;
         try {
-            // Try to find JSON in the response
             const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 analysisResults = JSON.parse(jsonMatch[0]);
             } else {
-                // If no JSON format is found, create a structured response
                 analysisResults = {
                     overallFeedback: "The AI provided feedback but not in JSON format.",
-                    questionFeedback: questionAnswerPairs.map((pair, index) => ({
-                        questionNumber: index + 1,
-                        questionText: pair.question,
-                        studentAnswer: pair.answer,
+                    questionFeedback: [{
+                        questionNumber: 1,
+                        answer: "See full response",
                         correctness: 0.5,
                         feedback: "AI feedback wasn't properly structured.",
                         suggestions: "Please see the full AI response below.",
                         fullResponse: response
-                    }))
+                    }]
                 };
             }
         } catch (parseError) {
             console.error("Error parsing AI response:", parseError);
             analysisResults = {
                 overallFeedback: "The AI response couldn't be parsed.",
-                questionFeedback: questionAnswerPairs.map((pair, index) => ({
-                    questionNumber: index + 1,
-                    questionText: pair.question,
-                    studentAnswer: pair.answer,
+                questionFeedback: [{
+                    questionNumber: 1,
+                    answer: "Error occurred",
                     correctness: 0.5,
                     feedback: "Error processing AI feedback.",
                     suggestions: "Please try again or check the raw response below.",
                     fullResponse: response
-                }))
+                }]
             };
         }
         
@@ -1997,76 +1929,46 @@ async function checkAssignment() {
         document.getElementById('check-assignment').disabled = false;
     }
 }
-    function extractQuestionsFromPDF(textContent) {
-    const questions = [];
-    let currentQuestion = '';
-    let isCollectingQuestion = false;
 
-    // Process each text item from the PDF
-    textContent.items.forEach(item => {
-        const text = item.str.trim();
-        
-        // Look for question markers (numbers followed by period or parenthesis)
-        if (text.match(/^\d+[\.\)]/) || text.match(/^[A-Z][\.\)]/)) {
-            if (currentQuestion) {
-                questions.push({
-                    text: currentQuestion.trim(),
-                    position: item.transform[5] // y-coordinate
-                });
-            }
-            isCollectingQuestion = true;
-            currentQuestion = text;
-        } else if (isCollectingQuestion) {
-            currentQuestion += ' ' + text;
+async function embedAnnotationsInPDF() {
+    // Load the PDF document
+    const pdfBytes = await pdfDoc.getData();
+    const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
+    const pages = pdfDoc.getPages();
+    const page = pages[pageNum - 1];
+    const { width, height } = page.getSize();
+    
+    // Get current annotations
+    const pageAnnots = documentAnnotations[currentPdfName][pageNum];
+    
+    if (pageAnnots && pageAnnots.texts) {
+        // Add text annotations to the PDF
+        for (const textAnnot of pageAnnots.texts) {
+            // Convert color from hex to RGB
+            const color = hexToRgb(textAnnot.color);
+            
+            // Add the text to the PDF
+            page.drawText(textAnnot.text, {
+                x: textAnnot.x,
+                y: height - textAnnot.y - textAnnot.size, // Convert to PDF coordinates
+                size: textAnnot.size,
+                color: PDFLib.rgb(color.r / 255, color.g / 255, color.b / 255)
+            });
         }
-    });
-
-    // Add the last question if exists
-    if (currentQuestion) {
-        questions.push({
-            text: currentQuestion.trim(),
-            position: textContent.items[textContent.items.length - 1].transform[5]
-        });
     }
-
-    return questions;
+    
+    // Save the modified PDF
+    return pdfDoc;
 }
 
-function matchAnnotationsToQuestions(questions, annotations) {
-    const pairs = [];
-    
-    // Convert annotations object to array if it contains text annotations
-    const annotationArray = annotations.texts || [];
-    
-    // Sort questions and annotations by their y-position
-    questions.sort((a, b) => b.position - a.position);
-    annotationArray.sort((a, b) => b.y - a.y);
-    
-    // Match each question with the closest annotation based on position
-    questions.forEach(question => {
-        const closestAnnotation = findClosestAnnotation(question.position, annotationArray);
-        pairs.push({
-            question: question.text,
-            answer: closestAnnotation ? closestAnnotation.text : ''
-        });
-    });
-    
-    return pairs;
-}
-
-function findClosestAnnotation(questionPosition, annotations) {
-    let closest = null;
-    let minDistance = Infinity;
-    
-    annotations.forEach(annotation => {
-        const distance = Math.abs(annotation.y - questionPosition);
-        if (distance < minDistance) {
-            minDistance = distance;
-            closest = annotation;
-        }
-    });
-    
-    return closest;
+// Helper function to convert hex color to RGB
+function hexToRgb(hex) {
+    hex = hex.replace('#', '');
+    return {
+        r: parseInt(hex.substring(0, 2), 16),
+        g: parseInt(hex.substring(2, 4), 16),
+        b: parseInt(hex.substring(4, 6), 16)
+    };
 }
 // Display the grading results in an easy-to-read format
 function displayGradingResults(results) {
