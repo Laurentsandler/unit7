@@ -1829,14 +1829,100 @@ function addCheckButton() {
     annotationTools.appendChild(checkButton);
 }
 
+// Set up the Gemini API Key - Add a field in the UI to set the API key
+function setupAPIKey() {
+    // Check if there's already a saved API key in localStorage
+    const savedApiKey = localStorage.getItem('geminiApiKey');
+    
+    // Create API key settings section
+    const apiKeySection = document.createElement('div');
+    apiKeySection.id = 'api-key-section';
+    apiKeySection.style.display = 'none'; // Hidden by default
+    apiKeySection.style.position = 'fixed';
+    apiKeySection.style.top = '50%';
+    apiKeySection.style.left = '50%';
+    apiKeySection.style.transform = 'translate(-50%, -50%)';
+    apiKeySection.style.backgroundColor = 'white';
+    apiKeySection.style.padding = '20px';
+    apiKeySection.style.borderRadius = '8px';
+    apiKeySection.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+    apiKeySection.style.zIndex = '2000';
+    apiKeySection.style.width = '400px';
+    
+    // API key form
+    const apiKeyForm = document.createElement('div');
+    apiKeyForm.innerHTML = `
+        <h3>API Key Setup</h3>
+        <p>Enter your Gemini API key to enable assignment checking:</p>
+        <input type="text" id="api-key-input" placeholder="Enter Gemini API Key" 
+               style="width: 100%; padding: 8px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 4px;"
+               value="${savedApiKey || ''}">
+        <div style="display: flex; justify-content: space-between;">
+            <button id="save-api-key" style="background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Save Key</button>
+            <button id="cancel-api-key" style="background: #6c757d; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Cancel</button>
+        </div>
+        <p style="margin-top: 15px; font-size: 12px; color: #6c757d;">
+            Your API key is stored locally in your browser. It is not sent anywhere except directly to Google's API.
+        </p>
+    `;
+    
+    apiKeySection.appendChild(apiKeyForm);
+    document.body.appendChild(apiKeySection);
+    
+    // Add event listeners for buttons
+    document.getElementById('save-api-key').addEventListener('click', () => {
+        const apiKey = document.getElementById('api-key-input').value.trim();
+        if (apiKey) {
+            localStorage.setItem('geminiApiKey', apiKey);
+            apiKeySection.style.display = 'none';
+            updateStatus('API key saved successfully');
+        } else {
+            alert('Please enter a valid API key');
+        }
+    });
+    
+    document.getElementById('cancel-api-key').addEventListener('click', () => {
+        apiKeySection.style.display = 'none';
+    });
+    
+    // Add a settings button to access API key configuration
+    const settingsButton = document.createElement('button');
+    settingsButton.id = 'api-settings';
+    settingsButton.title = 'API Settings';
+    settingsButton.textContent = '⚙️';
+    settingsButton.style.backgroundColor = '#6c757d';
+    settingsButton.addEventListener('click', () => {
+        apiKeySection.style.display = 'block';
+    });
+    
+    annotationTools.appendChild(settingsButton);
+}
+
+// Function to check if API key is configured
+function isApiKeyConfigured() {
+    return !!localStorage.getItem('geminiApiKey');
+}
+
+// Get the current API key
+function getApiKey() {
+    return localStorage.getItem('geminiApiKey');
+}
+
 // Function to check/grade the assignment
 async function checkAssignment() {
     try {
+        // Check if API key is configured
+        if (!isApiKeyConfigured()) {
+            document.getElementById('api-key-section').style.display = 'block';
+            updateStatus('Please configure API key first');
+            return;
+        }
+        
         // Show loading state
         updateStatus('Analyzing assignment...');
         document.getElementById('check-assignment').disabled = true;
         
-        // Collect data to send: PDF content + annotations
+        // Collect data to send
         const assignmentData = {
             pdfName: currentPdfName,
             pageNum: pageNum,
@@ -1844,8 +1930,8 @@ async function checkAssignment() {
             annotations: documentAnnotations[currentPdfName] || {}
         };
         
-        // Use the same API that's used for evaluating practice questions
-        const analysisResults = await evaluateAssignment(assignmentData);
+        // Use direct API call to Gemini instead of relying on evaluateAnswer
+        const analysisResults = await directGeminiApiCall(assignmentData);
         
         // Display the results
         displayGradingResults(analysisResults);
@@ -1861,10 +1947,15 @@ async function checkAssignment() {
     }
 }
 
-// Send the assignment to the Gemini API for grading
-async function evaluateAssignment(data) {
+// Direct API call to Gemini API
+async function directGeminiApiCall(data) {
     try {
-        // Create a prompt for the API based on the assignment data
+        const apiKey = getApiKey();
+        if (!apiKey) {
+            throw new Error('API key not configured');
+        }
+        
+        // Create a prompt for the API
         const prompt = `
         I need you to grade an assignment from ${data.pdfName}, page ${data.pageNum} of ${data.totalPages}.
         
@@ -1891,14 +1982,46 @@ async function evaluateAssignment(data) {
             ]
         }
         `;
-
-        // Use the same evaluation function used for practice questions
-        const response = await evaluateWithGemini(prompt);
+        
+        // Direct API call to Gemini
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{
+                        text: prompt
+                    }]
+                }]
+            })
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API call failed: ${response.status} - ${errorText}`);
+        }
+        
+        const responseJson = await response.json();
+        
+        // Extract the text from the response
+        let text = "";
+        if (responseJson.candidates && 
+            responseJson.candidates[0] && 
+            responseJson.candidates[0].content && 
+            responseJson.candidates[0].content.parts) {
+            
+            text = responseJson.candidates[0].content.parts
+                .filter(part => part.text)
+                .map(part => part.text)
+                .join('\n');
+        }
         
         // Parse the JSON response
         try {
             // First, try to find JSON in the response
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 return JSON.parse(jsonMatch[0]);
             } else {
@@ -1911,7 +2034,7 @@ async function evaluateAssignment(data) {
                             correctness: 0.5,
                             feedback: "AI feedback wasn't properly structured.",
                             suggestions: "Please see the full AI response below.",
-                            fullResponse: response
+                            fullResponse: text
                         }
                     ]
                 };
@@ -1926,7 +2049,7 @@ async function evaluateAssignment(data) {
                         correctness: 0.5,
                         feedback: "Error processing AI feedback.",
                         suggestions: "Please try again or check the raw response below.",
-                        fullResponse: response
+                        fullResponse: text
                     }
                 ]
             };
@@ -1935,13 +2058,6 @@ async function evaluateAssignment(data) {
         console.error("API call failed:", error);
         throw new Error("Failed to evaluate assignment: " + error.message);
     }
-}
-
-// Using the existing Gemini API call that you're already using for practice questions
-async function evaluateWithGemini(prompt) {
-    // Use your existing evaluateAnswer or similar function
-    // This assumes your existing code has a function like this to call the API
-    return await evaluateAnswer("Assignment grading", prompt, "");
 }
 
 // Display the grading results in an easy-to-read format
@@ -2085,10 +2201,13 @@ function displayGradingResults(results) {
     document.body.appendChild(panel);
 }
 
-// Call this function after the page loads to add the Check button
+// Call these functions to set up the buttons and API key interface
 document.addEventListener('DOMContentLoaded', function() {
     // Add the Check button to the toolbar
     addCheckButton();
+    
+    // Set up the API key configuration UI
+    setupAPIKey();
     
     // Add CSS for the grading results panel
     const style = document.createElement('style');
@@ -2109,9 +2228,45 @@ document.addEventListener('DOMContentLoaded', function() {
             transform: translateY(-2px);
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
+        #api-settings {
+            margin-left: 5px;
+            font-size: 14px;
+        }
+        #api-key-section {
+            background-color: white;
+            z-index: 2001;
+        }
+        .overall-feedback {
+            line-height: 1.4;
+        }
+        .question-feedback strong {
+            color: #24292e;
+        }
     `;
     document.head.appendChild(style);
 });
+
+// Function to update PDF viewer when switching between lessons
+function updateViewerForLessonChange() {
+    // If we have API key configured, make sure the check button is visible
+    if (document.getElementById('check-assignment')) {
+        document.getElementById('check-assignment').style.display = isApiKeyConfigured() ? 'inline-block' : 'none';
+    }
+    
+    // Close any open grading panels when switching lessons
+    const existingPanel = document.getElementById('grading-results-panel');
+    if (existingPanel) {
+        existingPanel.remove();
+    }
+}
+
+// Add this call to the existing loadPDF function
+const originalLoadPDF = loadPDF;
+loadPDF = function(url, fileName) {
+    originalLoadPDF(url, fileName);
+    // Add a small delay to ensure everything is loaded
+    setTimeout(updateViewerForLessonChange, 500);
+};
 </script>
 </body>
 </html>
