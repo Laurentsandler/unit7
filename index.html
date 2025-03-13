@@ -1446,6 +1446,7 @@ async function callGeminiAPI(textContent, contextInfo) {
 }
 
 // Function to display practice questions in a side panel
+// Function to display practice questions in a side panel
 function displayPracticeQuestionsPanel(questionsData) {
     // Remove any existing panel
     const existingPanel = document.getElementById('practice-questions-panel');
@@ -1456,17 +1457,19 @@ function displayPracticeQuestionsPanel(questionsData) {
     // Create panel container
     const panel = document.createElement('div');
     panel.id = 'practice-questions-panel';
-    panel.style.position = 'absolute';
-    panel.style.top = '0';
+    
+    // Change position from absolute to fixed
+    panel.style.position = 'fixed'; 
+    panel.style.top = '100px'; // Position below the header
     panel.style.right = '0';
-    panel.style.width = '400px';
-    panel.style.height = '100%';
+    panel.style.width = '350px'; // Slightly narrower than before
+    panel.style.height = 'calc(100vh - 120px)'; // Account for top position
     panel.style.backgroundColor = '#f8f9fa';
     panel.style.borderLeft = '1px solid #ddd';
     panel.style.boxShadow = '-2px 0 5px rgba(0, 0, 0, 0.1)';
     panel.style.overflowY = 'auto';
     panel.style.padding = '15px';
-    panel.style.zIndex = '1500';
+    panel.style.zIndex = '1000'; // Lower z-index so it doesn't overlap other elements
     panel.style.display = 'flex';
     panel.style.flexDirection = 'column';
     
@@ -1494,6 +1497,7 @@ function displayPracticeQuestionsPanel(questionsData) {
     closeButton.onclick = () => {
         panel.remove();
         // Restore original PDF container size
+        document.getElementById('main-content').style.width = '78%';
         document.getElementById('pdf-container').style.width = '100%';
     };
     
@@ -1581,53 +1585,11 @@ function displayPracticeQuestionsPanel(questionsData) {
         answerContainer.appendChild(answerHeader);
         answerContainer.appendChild(answerText);
         
-        // Feedback container (initially hidden)
-        const feedbackContainer = document.createElement('div');
-        feedbackContainer.className = 'feedback';
-        feedbackContainer.style.display = 'none';
-        feedbackContainer.style.padding = '10px';
-        feedbackContainer.style.borderRadius = '3px';
-        feedbackContainer.style.marginTop = '10px';
-        
-        // Handle check answer click
-        checkAnswerBtn.onclick = async () => {
-            const userAnswer = textarea.value.trim();
-            
-            if (userAnswer === '') {
-                alert('Please enter your answer first.');
-                return;
-            }
-            
-            checkAnswerBtn.textContent = 'Checking...';
-            checkAnswerBtn.disabled = true;
-            
-            // Show the correct answer
-            answerContainer.style.display = 'block';
-            
-            // Call Gemini API to evaluate the answer
-            try {
-                const evaluation = await evaluateAnswer(item.question, item.answer, userAnswer);
-                
-                feedbackContainer.innerHTML = `<strong>Feedback:</strong> ${evaluation}`;
-                feedbackContainer.style.backgroundColor = '#e3f2fd';
-                feedbackContainer.style.borderLeft = '3px solid #2196f3';
-                feedbackContainer.style.display = 'block';
-                
-                checkAnswerBtn.textContent = 'Checked';
-            } catch (error) {
-                feedbackContainer.innerHTML = `<strong>Feedback:</strong> Error evaluating answer. Compare your answer with the suggested one.`;
-                feedbackContainer.style.backgroundColor = '#ffebee';
-                feedbackContainer.style.borderLeft = '3px solid #ef5350';
-                feedbackContainer.style.display = 'block';
-                
-                checkAnswerBtn.textContent = 'Check Failed';
-            } finally {
-                // Re-enable the button after a delay
-                setTimeout(() => {
-                    checkAnswerBtn.disabled = false;
-                }, 3000);
-            }
-        };
+        // Button container
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.display = 'flex';
+        buttonContainer.style.gap = '10px';
+        buttonContainer.appendChild(checkAnswerBtn);
         
         // Show answer without checking
         const showAnswerBtn = document.createElement('button');
@@ -1643,17 +1605,11 @@ function displayPracticeQuestionsPanel(questionsData) {
             showAnswerBtn.textContent = answerContainer.style.display === 'none' ? 'Show Answer' : 'Hide Answer';
         };
         
-                // Button container
-        const buttonContainer = document.createElement('div');
-        buttonContainer.style.display = 'flex';
-        buttonContainer.style.gap = '10px';
-        buttonContainer.appendChild(checkAnswerBtn);
         buttonContainer.appendChild(showAnswerBtn);
         questionBlock.appendChild(buttonContainer);
         
-        // Add answer and feedback containers
+        // Add answer container
         questionBlock.appendChild(answerContainer);
-        questionBlock.appendChild(feedbackContainer);
         
         questionsContainer.appendChild(questionBlock);
     });
@@ -1681,18 +1637,13 @@ function displayPracticeQuestionsPanel(questionsData) {
     panelButtons.appendChild(regenerateBtn);
     panel.appendChild(panelButtons);
     
-    // Add the panel to the container and adjust the PDF container
-    document.getElementById('pdf-container').style.width = 'calc(100% - 400px)';
-    document.getElementById('pdf-container').appendChild(panel);
+    // Add to body instead of as a child of another element
+    document.body.appendChild(panel);
     
-    // Adjust the canvas size to match the new container size
-    if (pdfDoc) {
-        queueRenderPage(pageNum);
-    }
-    
-    updateStatus('Practice questions displayed');
+    // Adjust main content width to make room for the panel
+    document.getElementById('main-content').style.width = '78%';
+    document.getElementById('pdf-container').style.width = '100%';
 }
-
 // Function to evaluate a user's answer against the correct answer
 async function evaluateAnswer(question, correctAnswer, userAnswer) {
     try {
