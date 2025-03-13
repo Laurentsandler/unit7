@@ -265,7 +265,7 @@ function getCanvasCoordinates(e, canvas) {
     };
 }
 
-// Function to fetch GitHub files but display them as lesson numbers
+// Function to fetch GitHub files but display them as lesson numbers in chronological order
 async function fetchGitHubFiles() {
     const owner = 'Laurentsandler';
     const repo = 'unit7';
@@ -309,20 +309,42 @@ async function fetchGitHubFiles() {
         // Clear loading message
         fileListDiv.innerHTML = '';
 
-        // Add file links to the sidebar
+        // Process files and create a sorted array with lesson information
+        const lessonFiles = [];
         files.forEach(file => {
-            const fileUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${file.path}`;
+            // Extract the file ID (assuming file name contains the ID)
+            const fileId = file.name.replace(/\.[^/.]+$/, ""); // Remove file extension if any
+            
+            // Check if we have a lesson number for this file
+            if (lessonMap[fileId]) {
+                lessonFiles.push({
+                    lessonNumber: lessonMap[fileId],
+                    fileUrl: `https://raw.githubusercontent.com/${owner}/${repo}/main/${file.path}`,
+                    fileName: file.name
+                });
+            } else {
+                // File not in our mapping, add it with a high lesson number to put at the end
+                lessonFiles.push({
+                    lessonNumber: 1000, // Put unmapped files at the end
+                    fileUrl: `https://raw.githubusercontent.com/${owner}/${repo}/main/${file.path}`,
+                    fileName: file.name
+                });
+            }
+        });
+
+        // Sort by lesson number
+        lessonFiles.sort((a, b) => a.lessonNumber - b.lessonNumber);
+
+        // Add file links to the sidebar in sorted order
+        lessonFiles.forEach(lesson => {
             const fileLink = document.createElement('a');
             fileLink.className = 'file-link';
             
-            // Extract the ending characters from the file name (assuming file name is the ID)
-            const fileId = file.name.replace(/\.[^/.]+$/, ""); // Remove file extension if any
-            
-            // Display as Lesson X if mapping exists, otherwise use the original file name
-            if (lessonMap[fileId]) {
-                fileLink.textContent = `Lesson ${lessonMap[fileId]}`;
+            // Display as Lesson X if it's a known lesson, otherwise use the original file name
+            if (lesson.lessonNumber < 1000) {
+                fileLink.textContent = `Lesson ${lesson.lessonNumber}`;
             } else {
-                fileLink.textContent = file.name;
+                fileLink.textContent = lesson.fileName;
             }
             
             fileLink.onclick = function() {
@@ -335,20 +357,19 @@ async function fetchGitHubFiles() {
                 this.classList.add('active');
                 currentFileLink = this;
                 
-                loadPDF(fileUrl, fileLink.textContent);
+                loadPDF(lesson.fileUrl, fileLink.textContent);
             };
             fileListDiv.appendChild(fileLink);
         });
 
         // Load the first file by default if there are any files
-        if (files.length > 0) {
-            const firstFileUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${files[0].path}`;
+        if (lessonFiles.length > 0) {
             const firstFileElement = fileListDiv.querySelector('.file-link');
             if (firstFileElement) {
                 firstFileElement.classList.add('active');
                 currentFileLink = firstFileElement;
+                loadPDF(lessonFiles[0].fileUrl, firstFileElement.textContent);
             }
-            loadPDF(firstFileUrl, firstFileElement.textContent);
         }
         
         // Load annotations from local storage
