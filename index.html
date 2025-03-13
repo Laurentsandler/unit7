@@ -265,12 +265,33 @@ function getCanvasCoordinates(e, canvas) {
     };
 }
 
-// Function to fetch GitHub files
+// Function to fetch GitHub files but display them as lesson numbers
 async function fetchGitHubFiles() {
     const owner = 'Laurentsandler';
     const repo = 'unit7';
     const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/Lessons`;
     const fileListDiv = document.getElementById('file-list');
+
+    // Mapping from file IDs (ending characters) to lesson numbers
+    const lessonMap = {
+        's35vv2vcxyiqdvakd5lntb5icnfz': 1,
+        'zkky9m8o3vsozyu4xen4utf3f8gs': 2,
+        'yeqilxepw0xooighf6weuppph15f': 3,
+        'zlmmbcibwdq3sldaxgowpotarx3e': 4,
+        'neih48su5xw48htkbhyalx4fu3gl': 5,
+        '4fvqet2a7pbdncorckoyq2w523jz': 6,
+        'hcpb6rhvh788e3g5ifh063ibocy4': 7,
+        '50yqxgbiwuyx0ldixe5stlvylp1c': 8,
+        '0vamnafs0v4g79xk7ypf0lwe9fg3': 9,
+        'lki4e8pygdvxidpr9zxd4lx07lr7': 10,
+        '7pkw2mkjt199qrvm2alnup79d2e5': 11,
+        'd56egt3gsn786wh7hcbwfhkil390': 12,
+        '0u3ik9oupgfxr8yrgfv4eamm7qym': 13,
+        '22vegpfis9ni48syauiatmuthlyw': 14,
+        'ccfwve652ntbgzajvwioyb0ilgtb': 15,
+        'aixr5h1i1a9998j2r7qouyggu3tv': 16,
+        'f6jifba1pkyvh8mzshrcctihjkin': 17
+    };
 
     try {
         const response = await fetch(apiUrl);
@@ -293,7 +314,17 @@ async function fetchGitHubFiles() {
             const fileUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${file.path}`;
             const fileLink = document.createElement('a');
             fileLink.className = 'file-link';
-            fileLink.textContent = file.name;
+            
+            // Extract the ending characters from the file name (assuming file name is the ID)
+            const fileId = file.name.replace(/\.[^/.]+$/, ""); // Remove file extension if any
+            
+            // Display as Lesson X if mapping exists, otherwise use the original file name
+            if (lessonMap[fileId]) {
+                fileLink.textContent = `Lesson ${lessonMap[fileId]}`;
+            } else {
+                fileLink.textContent = file.name;
+            }
+            
             fileLink.onclick = function() {
                 // Remove active class from previous link
                 if (currentFileLink) {
@@ -304,7 +335,7 @@ async function fetchGitHubFiles() {
                 this.classList.add('active');
                 currentFileLink = this;
                 
-                loadPDF(fileUrl, file.name);
+                loadPDF(fileUrl, fileLink.textContent);
             };
             fileListDiv.appendChild(fileLink);
         });
@@ -317,7 +348,7 @@ async function fetchGitHubFiles() {
                 firstFileElement.classList.add('active');
                 currentFileLink = firstFileElement;
             }
-            loadPDF(firstFileUrl, files[0].name);
+            loadPDF(firstFileUrl, firstFileElement.textContent);
         }
         
         // Load annotations from local storage
