@@ -1811,6 +1811,307 @@ styleElement.textContent = `
     }
 `;
 document.head.appendChild(styleElement);
+    // Add a new "Check" button in the annotation tools section
+function addCheckButton() {
+    const annotationTools = document.getElementById('annotation-tools');
+    
+    // Create the Check button
+    const checkButton = document.createElement('button');
+    checkButton.id = 'check-assignment';
+    checkButton.title = 'Check Assignment';
+    checkButton.textContent = 'Check';
+    checkButton.style.backgroundColor = '#28a745'; // Green color
+    
+    // Add event listener for the Check button
+    checkButton.addEventListener('click', checkAssignment);
+    
+    // Add the button to the toolbar
+    annotationTools.appendChild(checkButton);
+}
+
+// Function to check/grade the assignment
+async function checkAssignment() {
+    try {
+        // Show loading state
+        updateStatus('Analyzing assignment...');
+        document.getElementById('check-assignment').disabled = true;
+        
+        // Collect data to send: PDF content + annotations
+        const assignmentData = {
+            pdfName: currentPdfName,
+            pageNum: pageNum,
+            totalPages: pdfDoc ? pdfDoc.numPages : 1,
+            annotations: documentAnnotations[currentPdfName] || {}
+        };
+        
+        // Use the same API that's used for evaluating practice questions
+        const analysisResults = await evaluateAssignment(assignmentData);
+        
+        // Display the results
+        displayGradingResults(analysisResults);
+        
+        // Reset button state
+        document.getElementById('check-assignment').disabled = false;
+        updateStatus('Assignment analysis complete');
+        
+    } catch (error) {
+        console.error('Error checking assignment:', error);
+        updateStatus('Error checking assignment: ' + error.message);
+        document.getElementById('check-assignment').disabled = false;
+    }
+}
+
+// Send the assignment to the Gemini API for grading
+async function evaluateAssignment(data) {
+    try {
+        // Create a prompt for the API based on the assignment data
+        const prompt = `
+        I need you to grade an assignment from ${data.pdfName}, page ${data.pageNum} of ${data.totalPages}.
+        
+        The annotations (student answers) are as follows:
+        ${JSON.stringify(data.annotations[data.pageNum] || {}, null, 2)}
+        
+        Please analyze these answers and provide:
+        1. Overall feedback on the assignment
+        2. Feedback for each question or annotation
+        3. A correctness score (0.0-1.0) for each question
+        4. Suggestions for improvement
+        
+        Format your response as a JSON object with this structure:
+        {
+            "overallFeedback": "string with general feedback",
+            "questionFeedback": [
+                {
+                    "questionNumber": number,
+                    "correctness": number between 0 and 1,
+                    "feedback": "string with specific feedback",
+                    "suggestions": "string with improvement suggestions"
+                },
+                ...more questions...
+            ]
+        }
+        `;
+
+        // Use the same evaluation function used for practice questions
+        const response = await evaluateWithGemini(prompt);
+        
+        // Parse the JSON response
+        try {
+            // First, try to find JSON in the response
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                return JSON.parse(jsonMatch[0]);
+            } else {
+                // If no JSON format is found, create a structured response
+                return {
+                    overallFeedback: "The AI provided feedback but not in JSON format.",
+                    questionFeedback: [
+                        {
+                            questionNumber: 1,
+                            correctness: 0.5,
+                            feedback: "AI feedback wasn't properly structured.",
+                            suggestions: "Please see the full AI response below.",
+                            fullResponse: response
+                        }
+                    ]
+                };
+            }
+        } catch (parseError) {
+            console.error("Error parsing AI response:", parseError);
+            return {
+                overallFeedback: "The AI response couldn't be parsed.",
+                questionFeedback: [
+                    {
+                        questionNumber: 1,
+                        correctness: 0.5,
+                        feedback: "Error processing AI feedback.",
+                        suggestions: "Please try again or check the raw response below.",
+                        fullResponse: response
+                    }
+                ]
+            };
+        }
+    } catch (error) {
+        console.error("API call failed:", error);
+        throw new Error("Failed to evaluate assignment: " + error.message);
+    }
+}
+
+// Using the existing Gemini API call that you're already using for practice questions
+async function evaluateWithGemini(prompt) {
+    // Use your existing evaluateAnswer or similar function
+    // This assumes your existing code has a function like this to call the API
+    return await evaluateAnswer("Assignment grading", prompt, "");
+}
+
+// Display the grading results in an easy-to-read format
+function displayGradingResults(results) {
+    // Remove any existing results panel
+    const existingPanel = document.getElementById('grading-results-panel');
+    if (existingPanel) {
+        existingPanel.remove();
+    }
+    
+    // Create results panel
+    const panel = document.createElement('div');
+    panel.id = 'grading-results-panel';
+    panel.style.position = 'fixed';
+    panel.style.top = '100px';
+    panel.style.right = '0';
+    panel.style.width = '350px';
+    panel.style.height = 'calc(100vh - 120px)';
+    panel.style.backgroundColor = '#f8f9fa';
+    panel.style.borderLeft = '1px solid #ddd';
+    panel.style.boxShadow = '-2px 0 5px rgba(0, 0, 0, 0.1)';
+    panel.style.overflowY = 'auto';
+    panel.style.padding = '15px';
+    panel.style.zIndex = '1000';
+    panel.style.display = 'flex';
+    panel.style.flexDirection = 'column';
+    
+    // Add header
+    const header = document.createElement('div');
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.alignItems = 'center';
+    header.style.marginBottom = '15px';
+    header.style.borderBottom = '1px solid #ddd';
+    header.style.paddingBottom = '10px';
+    
+    const title = document.createElement('h3');
+    title.textContent = 'Assignment Feedback';
+    title.style.margin = '0';
+    title.style.color = '#24292e';
+    
+    const closeButton = document.createElement('button');
+    closeButton.innerHTML = '&times;';
+    closeButton.style.background = 'none';
+    closeButton.style.border = 'none';
+    closeButton.style.fontSize = '24px';
+    closeButton.style.cursor = 'pointer';
+    closeButton.style.color = '#586069';
+    closeButton.onclick = () => panel.remove();
+    
+    header.appendChild(title);
+    header.appendChild(closeButton);
+    panel.appendChild(header);
+    
+    // Add document info
+    const documentInfo = document.createElement('p');
+    documentInfo.textContent = `Analysis for: ${currentPdfName} (Page ${pageNum})`;
+    documentInfo.style.fontSize = '14px';
+    documentInfo.style.color = '#586069';
+    documentInfo.style.marginBottom = '15px';
+    panel.appendChild(documentInfo);
+    
+    // Add overall feedback
+    const overallFeedback = document.createElement('div');
+    overallFeedback.className = 'overall-feedback';
+    overallFeedback.style.padding = '10px';
+    overallFeedback.style.backgroundColor = '#e1f5fe';
+    overallFeedback.style.borderRadius = '5px';
+    overallFeedback.style.marginBottom = '20px';
+    overallFeedback.innerHTML = `<strong>Overall:</strong> ${results.overallFeedback}`;
+    panel.appendChild(overallFeedback);
+    
+    // Add question feedback
+    const questionsContainer = document.createElement('div');
+    questionsContainer.style.flexGrow = '1';
+    questionsContainer.style.overflowY = 'auto';
+    
+    results.questionFeedback.forEach(item => {
+        const questionBlock = document.createElement('div');
+        questionBlock.className = 'question-feedback';
+        questionBlock.style.marginBottom = '20px';
+        questionBlock.style.backgroundColor = 'white';
+        questionBlock.style.padding = '15px';
+        questionBlock.style.borderRadius = '5px';
+        questionBlock.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+        
+        // Question number and correctness score
+        const questionHeader = document.createElement('div');
+        questionHeader.style.display = 'flex';
+        questionHeader.style.justifyContent = 'space-between';
+        questionHeader.style.marginBottom = '10px';
+        
+        const questionTitle = document.createElement('strong');
+        questionTitle.textContent = `Question ${item.questionNumber}`;
+        
+        const scoreDisplay = document.createElement('span');
+        scoreDisplay.textContent = `${Math.round(item.correctness * 100)}%`;
+        
+        // Color based on score
+        if (item.correctness >= 0.9) {
+            scoreDisplay.style.color = '#28a745'; // Green for excellent
+        } else if (item.correctness >= 0.7) {
+            scoreDisplay.style.color = '#fd7e14'; // Orange for good
+        } else {
+            scoreDisplay.style.color = '#dc3545'; // Red for needs improvement
+        }
+        
+        questionHeader.appendChild(questionTitle);
+        questionHeader.appendChild(scoreDisplay);
+        questionBlock.appendChild(questionHeader);
+        
+        // Feedback
+        const feedbackDiv = document.createElement('div');
+        feedbackDiv.style.marginBottom = '10px';
+        feedbackDiv.innerHTML = `<strong>Feedback:</strong> ${item.feedback}`;
+        questionBlock.appendChild(feedbackDiv);
+        
+        // Suggestions
+        const suggestionsDiv = document.createElement('div');
+        suggestionsDiv.innerHTML = `<strong>Suggestions:</strong> ${item.suggestions}`;
+        questionBlock.appendChild(suggestionsDiv);
+        
+        // If there's a fullResponse field (error fallback), display it
+        if (item.fullResponse) {
+            const fullResponseDiv = document.createElement('div');
+            fullResponseDiv.style.marginTop = '15px';
+            fullResponseDiv.style.padding = '10px';
+            fullResponseDiv.style.backgroundColor = '#f8f9fa';
+            fullResponseDiv.style.borderLeft = '3px solid #6c757d';
+            fullResponseDiv.style.fontSize = '0.9em';
+            fullResponseDiv.innerHTML = `<strong>Full Response:</strong><br>${item.fullResponse.replace(/\n/g, '<br>')}`;
+            questionBlock.appendChild(fullResponseDiv);
+        }
+        
+        questionsContainer.appendChild(questionBlock);
+    });
+    
+    panel.appendChild(questionsContainer);
+    
+    // Add the panel to the document body
+    document.body.appendChild(panel);
+}
+
+// Call this function after the page loads to add the Check button
+document.addEventListener('DOMContentLoaded', function() {
+    // Add the Check button to the toolbar
+    addCheckButton();
+    
+    // Add CSS for the grading results panel
+    const style = document.createElement('style');
+    style.textContent = `
+        #grading-results-panel {
+            font-family: Arial, sans-serif;
+        }
+        #check-assignment {
+            background-color: #28a745;
+        }
+        #check-assignment:hover {
+            background-color: #218838;
+        }
+        .question-feedback {
+            transition: all 0.3s ease;
+        }
+        .question-feedback:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+    `;
+    document.head.appendChild(style);
+});
 </script>
 </body>
 </html>
