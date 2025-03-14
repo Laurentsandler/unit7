@@ -2514,6 +2514,38 @@ document.addEventListener('DOMContentLoaded', function() {
     `;
     document.head.appendChild(style);
 });
+    // Load the html2canvas library dynamically and ensure it's ready to use
+function loadHtml2Canvas() {
+    return new Promise((resolve, reject) => {
+        if (window.html2canvas) {
+            console.log('html2canvas already loaded');
+            resolve();
+            return;
+        }
+        
+        console.log('Loading html2canvas library...');
+        const script = document.createElement('script');
+        script.src = 'https://html2canvas.hertzen.com/dist/html2canvas.min.js';
+        script.async = true;
+        
+        script.onload = () => {
+            console.log('html2canvas loaded successfully');
+            // Make sure we can actually access the function
+            if (typeof window.html2canvas === 'function') {
+                resolve();
+            } else {
+                reject(new Error('html2canvas loaded but function not available'));
+            }
+        };
+        
+        script.onerror = () => {
+            console.error('Failed to load html2canvas');
+            reject(new Error('Failed to load html2canvas library'));
+        };
+        
+        document.head.appendChild(script);
+    });
+}
 </script>
 </body>
 </html>
