@@ -2151,6 +2151,135 @@ function addCheckButton() {
     // Add the button to the toolbar
     annotationTools.appendChild(checkButton);
 }
+    // Parse the grading response from the AI
+function parseGradingResponse(aiResponse) {
+    try {
+        // First attempt to parse JSON if the response is in JSON format
+        try {
+            const jsonResponse = JSON.parse(aiResponse);
+            if (jsonResponse.overallFeedback && jsonResponse.questionFeedback) {
+                return jsonResponse;
+            }
+        } catch (jsonError) {
+            // Not JSON, continue with text parsing
+        }
+        
+        // If not in JSON format, parse the text response
+        const result = {
+            overallFeedback: "",
+            questionFeedback: [],
+            totalScore: 0
+        };
+        
+        // Extract the overall feedback from the beginning of the response
+        const overallMatch = aiResponse.match(/Overall feedback:?([\s\S]*?)(?=For each question|Question|Problem|\d+\.|\n\n|\Z)/i);
+        if (overallMatch && overallMatch[1]) {
+            result.overallFeedback = overallMatch[1].trim();
+        }
+        
+        // Look for question/problem sections
+        const questionRegex = /(?:Question|Problem)\s*(\d+)(?::|\.)([\s\S]*?)(?=(?:Question|Problem)\s*\d+(?::|\.)|$)/gi;
+        let questionMatch;
+        
+        // If no explicitly marked questions, try to find numbered sections
+        if (!aiResponse.match(questionRegex)) {
+            const numberedSectionRegex = /(\d+)(?::|\.)([\s\S]*?)(?=\d+(?::|\.)|$)/g;
+            questionMatch = numberedSectionRegex.exec(aiResponse);
+            
+            while (questionMatch) {
+                const questionNum = parseInt(questionMatch[1]);
+                const content = questionMatch[2].trim();
+                
+                // Extract score, blank status, feedback, and suggestions
+                const scoreMatch = content.match(/Score:?\s*([\d.]+)/i);
+                const isBlankMatch = content.match(/blank|missing|empty|not\s+provided/i);
+                
+                const feedback = {
+                    questionNumber: questionNum,
+                    isBlank: isBlankMatch !== null,
+                    answer: "",
+                    correctness: scoreMatch ? parseFloat(scoreMatch[1]) : 0,
+                    feedback: content.replace(/Score:?\s*([\d.]+)/i, '').trim(),
+                    suggestions: ""
+                };
+                
+                // Try to extract suggestions if present
+                const suggestionsMatch = content.match(/suggestions:?([\s\S]*?)(?=\n\n|\Z)/i);
+                if (suggestionsMatch && suggestionsMatch[1]) {
+                    feedback.suggestions = suggestionsMatch[1].trim();
+                }
+                
+                result.questionFeedback.push(feedback);
+                questionMatch = numberedSectionRegex.exec(aiResponse);
+            }
+        } else {
+            // Process explicitly marked questions
+            questionMatch = questionRegex.exec(aiResponse);
+            
+            while (questionMatch) {
+                const questionNum = parseInt(questionMatch[1]);
+                const content = questionMatch[2].trim();
+                
+                // Extract score, blank status, feedback, and suggestions
+                const scoreMatch = content.match(/Score:?\s*([\d.]+)/i);
+                const isBlankMatch = content.match(/blank|missing|empty|not\s+provided/i);
+                
+                const feedback = {
+                    questionNumber: questionNum,
+                    isBlank: isBlankMatch !== null,
+                    answer: "",
+                    correctness: scoreMatch ? parseFloat(scoreMatch[1]) : 0,
+                    feedback: content.replace(/Score:?\s*([\d.]+)/i, '').trim(),
+                    suggestions: ""
+                };
+                
+                // Try to extract suggestions if present
+                const suggestionsMatch = content.match(/suggestions:?([\s\S]*?)(?=\n\n|\Z)/i);
+                if (suggestionsMatch && suggestionsMatch[1]) {
+                    feedback.suggestions = suggestionsMatch[1].trim();
+                }
+                
+                result.questionFeedback.push(feedback);
+                questionMatch = questionRegex.exec(aiResponse);
+            }
+        }
+        
+        // If we still have no questions parsed, create a single feedback entry
+        if (result.questionFeedback.length === 0) {
+            result.questionFeedback.push({
+                questionNumber: 1,
+                isBlank: false,
+                answer: "",
+                correctness: 0.5, // Default middle score
+                feedback: aiResponse.replace(result.overallFeedback, "").trim(),
+                suggestions: "See feedback"
+            });
+        }
+        
+        // Calculate total score
+        if (result.questionFeedback.length > 0) {
+            const sum = result.questionFeedback.reduce((total, q) => total + q.correctness, 0);
+            result.totalScore = sum / result.questionFeedback.length;
+        }
+        
+        return result;
+        
+    } catch (error) {
+        console.error("Error parsing AI response:", error);
+        return {
+            overallFeedback: "Error parsing AI response: " + error.message,
+            questionFeedback: [{
+                questionNumber: 1,
+                isBlank: false,
+                answer: "",
+                correctness: 0,
+                feedback: "Unable to parse the AI response",
+                suggestions: "Please try again"
+            }],
+            totalScore: 0
+        };
+    }
+}
 // Display the grading results in an easy-to-read format
 function displayGradingResults(results) {
     // Remove any existing results panel
