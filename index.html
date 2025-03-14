@@ -259,15 +259,7 @@
                     <button id="practice" title="Generate Practice Questions">Practice</button>
                 </div>
             </div>
-            <!-- Screenshot Selection UI -->
-<div id="screenshot-selection-overlay">
-    <canvas id="screenshot-canvas"></canvas>
-    <div id="screenshot-selection"></div>
-    <div id="screenshot-toolbar">
-        <button id="screenshot-capture-btn">Send to AI</button>
-        <button id="screenshot-cancel-btn">Cancel</button>
-    </div>
-</div>
+
             <div id="pdf-container">
                 <div id="pdf-viewer">
                     <canvas id="pdf-canvas"></canvas>
@@ -278,7 +270,15 @@
             </div>
         </div>
     </div>
-
+<!-- Screenshot Selection UI -->
+<div id="screenshot-selection-overlay">
+    <canvas id="screenshot-canvas"></canvas>
+    <div id="screenshot-selection"></div>
+    <div id="screenshot-toolbar">
+        <button id="screenshot-capture-btn">Send to AI</button>
+        <button id="screenshot-cancel-btn">Cancel</button>
+    </div>
+</div>
 <script>
 // Add fallback PDF URL
 const FALLBACK_PDF_URL = "https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi-09.pdf";
