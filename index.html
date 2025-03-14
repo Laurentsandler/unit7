@@ -1920,22 +1920,75 @@ function initScreenshotSelection() {
     cancelBtn.addEventListener('click', hideScreenshotSelector);
 }
 
-// Show the screenshot selector overlay
+// Update the showScreenshotSelector function to use better screenshot capturing
 function showScreenshotSelector() {
-    // Take a screenshot of the current view
-    html2canvas(document.body).then(canvas => {
+    // Update status first
+    updateStatus('Preparing screenshot mode...');
+    
+    // Make sure html2canvas is loaded
+    if (typeof html2canvas !== 'function') {
+        updateStatus('Screenshot library not loaded. Please refresh the page.');
+        console.error('html2canvas not loaded');
+        return;
+    }
+    
+    // Better to capture just the PDF viewer and its annotations
+    const pdfContainer = document.getElementById('pdf-container');
+    
+    if (!pdfContainer) {
+        updateStatus('PDF viewer not found');
+        return;
+    }
+    
+    // Start with a loading message
+    updateStatus('Taking screenshot of PDF...');
+    
+    html2canvas(pdfContainer, {
+        scale: 2, // Higher resolution
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: null
+    }).then(canvas => {
         const ctx = screenshotCanvas.getContext('2d');
         
         // Set canvas dimensions
         screenshotCanvas.width = window.innerWidth;
         screenshotCanvas.height = window.innerHeight;
         
-        // Draw the screenshot onto our canvas
-        ctx.drawImage(canvas, 0, 0);
+        // Fill with semi-transparent black
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(0, 0, screenshotCanvas.width, screenshotCanvas.height);
+        
+        // Calculate position to center the PDF screenshot
+        const x = (screenshotCanvas.width - canvas.width) / 2;
+        const y = (screenshotCanvas.height - canvas.height) / 2;
+        
+        // Draw the PDF screenshot onto our canvas
+        ctx.drawImage(canvas, x, y);
         
         // Show the overlay
         screenshotOverlay.style.display = 'block';
-        updateStatus('Select the area you want to grade');
+        
+        // Position the selection initially around the PDF
+        selectionStart.x = x;
+        selectionStart.y = y;
+        selectionEnd.x = x + canvas.width;
+        selectionEnd.y = y + canvas.height;
+        
+        // Show initial selection
+        screenshotSelection.style.display = 'block';
+        screenshotSelection.style.left = `${selectionStart.x}px`;
+        screenshotSelection.style.top = `${selectionStart.y}px`;
+        screenshotSelection.style.width = `${canvas.width}px`;
+        screenshotSelection.style.height = `${canvas.height}px`;
+        
+        // Show toolbar immediately
+        screenshotToolbar.style.display = 'block';
+        
+        updateStatus('Select the area you want to analyze or use current selection');
+    }).catch(error => {
+        console.error('Error taking screenshot:', error);
+        updateStatus('Failed to take screenshot: ' + error.message);
     });
 }
 
@@ -1997,12 +2050,19 @@ function endSelection() {
 }
 
 // Capture the selected part of the screenshot
+// Capture the selected part of the screenshot
 function captureScreenshot() {
     // Calculate the selection coordinates
     const left = Math.min(selectionStart.x, selectionEnd.x);
     const top = Math.min(selectionStart.y, selectionEnd.y);
     const width = Math.abs(selectionEnd.x - selectionStart.x);
     const height = Math.abs(selectionEnd.y - selectionStart.y);
+    
+    // Make sure we have a valid selection
+    if (width < 10 || height < 10) {
+        updateStatus('Selection area too small. Please select a larger area.');
+        return;
+    }
     
     // Create a new canvas for the cropped image
     const croppedCanvas = document.createElement('canvas');
@@ -2017,8 +2077,11 @@ function captureScreenshot() {
         0, 0, width, height
     );
     
-    // Convert to base64 image
+    // Convert to base64 image - ensure we're using 'image/png' format
     const imageBase64 = croppedCanvas.toDataURL('image/png');
+    
+    // Log the image size (for debugging)
+    console.log(`Screenshot captured: ${width}x${height} pixels, data length: ${imageBase64.length}`);
     
     // Hide the overlay
     hideScreenshotSelector();
@@ -2034,16 +2097,34 @@ async function sendScreenshotToGemini(imageBase64) {
         updateStatus('Analyzing assignment...');
         document.getElementById('check-assignment').disabled = true;
         
+        // Make sure we have a valid image
+        if (!imageBase64 || imageBase64.length < 1000) {
+            throw new Error('Invalid image data. The screenshot may be empty.');
+        }
+        
+        // Extract the base64 data part (remove the prefix if it exists)
+        const base64Data = imageBase64.includes(',') ? 
+            imageBase64.split(',')[1] : imageBase64;
+        
+        // Log first few characters of base64 data (for debugging)
+        console.log(`Image base64 data prefix: ${base64Data.substring(0, 20)}...`);
+        
         const prompt = `
         I need you to grade an assignment from ${currentPdfName}, page ${pageNum} of ${pdfDoc.numPages}.
         
-        IMPORTANT GRADING RULES:
+        The image I'm sending you contains a PDF page with student annotations (answers) on it.
+        
+        IMPORTANT INSTRUCTIONS:
+        1. First, identify all questions in the image
+        2. Then, look for annotations (typically in red or other bright colors) that represent student answers
+        3. Match each annotation to a question
+        4. Only grade the annotations/answers that are visible in the image
+        
+        GRADING RULES:
         - Blank or missing answers should receive a score of 0
         - Each answer must be evaluated based on its completeness and correctness
         - Scores should range from 0.0 (completely wrong or blank) to 1.0 (completely correct)
         - Partial credit can be given for partially correct answers
-        
-        Look at the image I've provided and analyze any student work, answers, or annotations visible.
         
         Please provide a detailed analysis with:
         1. Overall feedback on the assignment
@@ -2053,6 +2134,8 @@ async function sendScreenshotToGemini(imageBase64) {
            - Specific feedback on the answer
            - Suggestions for improvement
         `;
+        
+        console.log('Sending request to Gemini API...');
         
         // Make API call with the image
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
@@ -2068,7 +2151,7 @@ async function sendScreenshotToGemini(imageBase64) {
                         { 
                             inline_data: {
                                 mime_type: "image/png",
-                                data: imageBase64.split(',')[1] // Remove the data:image/png;base64, prefix
+                                data: base64Data
                             }
                         }
                     ]
@@ -2081,10 +2164,18 @@ async function sendScreenshotToGemini(imageBase64) {
         });
         
         if (!response.ok) {
-            throw new Error(`API error: ${response.statusText}`);
+            const errorData = await response.json().catch(() => ({}));
+            console.error('API error details:', errorData);
+            throw new Error(`API error: ${response.status} ${response.statusText}`);
         }
         
         const data = await response.json();
+        console.log('API response received:', data);
+        
+        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts || !data.candidates[0].content.parts[0]) {
+            throw new Error('Invalid response format from Gemini API');
+        }
+        
         const aiResponse = data.candidates[0].content.parts[0].text;
         
         // Parse and display the AI response
@@ -2102,37 +2193,6 @@ async function sendScreenshotToGemini(imageBase64) {
     }
 }
 
-// Initialize html2canvas library dynamically
-function loadHtml2Canvas() {
-    return new Promise((resolve, reject) => {
-        if (window.html2canvas) {
-            resolve();
-            return;
-        }
-        
-        const script = document.createElement('script');
-        script.src = 'https://html2canvas.hertzen.com/dist/html2canvas.min.js';
-        script.onload = resolve;
-        script.onerror = () => reject(new Error('Failed to load html2canvas library'));
-        document.head.appendChild(script);
-    });
-}
-
-// Initialize everything when DOM is fully loaded
-document.addEventListener('DOMContentLoaded', async function() {
-    // Existing initialization code...
-    
-    // Initialize screenshot capture capability
-    try {
-        await loadHtml2Canvas();
-        initScreenshotSelection();
-    } catch (error) {
-        console.error('Error initializing screenshot functionality:', error);
-    }
-    
-    // Add the Check button
-    addCheckButton();
-});
 
 // Add the Check button
 function addCheckButton() {
